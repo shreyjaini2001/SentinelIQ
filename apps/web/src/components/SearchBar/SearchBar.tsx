@@ -28,7 +28,7 @@ export function SearchBar() {
   } = useSearchBar()
 
   const { currentResult, chips, breadcrumbs, actionOutput, actionData, actionProgress } = useSessionStore()
-  const hasDedicatedPanel = actionData?.handler === 'triage' || actionData?.handler === 'hunt' || actionData?.handler === 'timeline'
+  const hasDedicatedPanel = ['triage', 'hunt', 'timeline', 'blast_radius', 'documentation', 'comparative', 'rule_suggestion'].includes(actionData?.handler ?? '')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const { showAutocomplete, handleFocus, handleBlur } = useAutocomplete()
 

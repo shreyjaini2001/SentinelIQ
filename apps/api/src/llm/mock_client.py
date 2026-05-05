@@ -325,6 +325,14 @@ def _detect_mode(text: str) -> dict:
         "suppress false",
         "identify all systems",
         "write a rule", "write a report", "write a playbook", "write a detection", "write a summary",
+        "blast radius", "scope of compromise", "impact if",
+        "compare", "baseline", "deviation", "anomalous behavior", "behavioral analysis",
+        "how does this compare", "peer comparison", "peer percentile", "is this normal",
+        "is this unusual", "outlier", "how anomalous",
+        "write a rule", "create a rule", "suggest a rule", "rule for this",
+        "executive summary", "executive report", "technical report",
+        "regulatory report", "compliance report", "breach notification",
+        "generate report", "create report", "draft a report",
     }
 
     # Priority: refine > action (with hybrid-query guard) > query
@@ -473,6 +481,236 @@ def _build_kql(text: str) -> dict:
     }
 
 
+def _doc_technical_mock(text: str) -> str:
+    entity = "jsmith@corp.com" if "jsmith" in text.lower() else "the affected entity"
+    return f"""## Technical Incident Report
+
+**Classification:** CONFIDENTIAL | RESTRICTED
+**Incident ID:** INC-2026-0042
+**Analyst:** SentinelIQ AI
+**Generated:** 2026-05-04T00:00:00Z
+
+## Executive Overview
+
+A credential compromise of {entity} was detected on 2026-05-03. Initial access was gained via a phishing email containing a malicious OAuth token harvesting link. The threat actor subsequently performed lateral movement to 3 internal systems including SERVER-DC01, and attempted privilege escalation via a known local admin path on DESKTOP-42.
+
+## Timeline of Events
+
+| Time (UTC) | Event | Confidence |
+|------------|-------|------------|
+| 2026-05-03 02:14 | Phishing link clicked — OAuth token harvested | High |
+| 2026-05-03 02:31 | Successful login from RU (185.220.101.45) | High |
+| 2026-05-03 03:02 | DESKTOP-42 local admin escalation | High |
+| 2026-05-03 03:18 | Network logon to FILE-SRV01 (EventID 4648) | High |
+| 2026-05-03 03:45 | LSASS memory access on SERVER-DC01 | Critical |
+| 2026-05-03 04:12 | 312MB outbound transfer to 185.220.101.45 | High |
+
+## Affected Systems
+
+- **DESKTOP-42** — Risk score 78/100. Initial escalation point.
+- **FILE-SRV01** — Risk score 55/100. Lateral movement target.
+- **SERVER-DC01** — Risk score 91/100. Credential dumping attempted.
+
+## Attack Chain Analysis
+
+The attack follows a classic credential theft → lateral movement → data exfiltration chain mapped to ATT&CK techniques: T1566 (Phishing), T1078 (Valid Accounts), T1021 (Remote Services), T1003 (OS Credential Dumping), T1041 (Exfiltration Over C2 Channel).
+
+## Forensic Artifacts
+
+- Source IP: 185.220.101.45 (Tor exit node, RU geolocated)
+- OAuth token: harvested via malicious app registration
+- Process: `powershell.exe -EncodedCommand` on DESKTOP-42 at 03:02 UTC
+- LSASS handle opened by non-system process at 03:45 UTC
+
+## Remediation Steps
+
+1. Disable and reset credentials for {entity}
+2. Revoke all OAuth tokens and active sessions
+3. Reimage DESKTOP-42 and FILE-SRV01
+4. Rotate Domain Admin credentials on SERVER-DC01
+5. Deploy detection rule RULE-003 (CredentialDumping) with enhanced scope
+6. Conduct threat hunt for additional T1078 indicators across all user accounts
+"""
+
+
+def _doc_executive_mock(text: str) -> str:
+    entity = "jsmith@corp.com" if "jsmith" in text.lower() else "a Finance team member"
+    return f"""## Executive Security Briefing
+
+**Incident:** Active Credential Compromise
+**Severity:** HIGH
+**Business Impact:** Potential data exposure; no ransomware or service disruption detected
+
+## What Happened
+
+A Finance team employee account ({entity}) was compromised through a targeted phishing attack. The attacker gained access to internal systems and attempted to steal credentials that could provide broader network access.
+
+## What Was Affected
+
+- 1 user account compromised
+- 3 internal systems accessed without authorization
+- Approximately 312 MB of data transferred to an external IP
+
+## What We Did
+
+- Account suspended within 4 hours of detection
+- Affected systems isolated for forensic review
+- No evidence of ransomware or service disruption
+- Active monitoring deployed for related threat actor indicators
+
+## What Happens Next
+
+1. Full credential rotation for affected team (estimated 2 hours)
+2. Forensic review of the 3 affected systems (estimated 48 hours)
+3. Enhanced monitoring rules deployed to detect recurrence
+4. User awareness training session scheduled for Finance team
+
+## Risk Assessment
+
+**Current risk:** MEDIUM — containment actions reduce immediate threat. Long-term risk depends on credential rotation completeness and detection rule effectiveness.
+"""
+
+
+def _doc_regulatory_mock(text: str) -> str:
+    return """## Regulatory Breach Notification Draft
+
+**GDPR Article 33 / CCPA Notification**
+**Incident Reference:** INC-2026-0042
+**Notification Deadline:** 72 hours from discovery (2026-05-06 ~14:00 UTC)
+
+## Incident Description
+
+On 2026-05-03, Contoso Corp detected unauthorized access to internal systems via a compromised employee credential. The breach was discovered through automated security monitoring at approximately 04:30 UTC.
+
+## Data Types Potentially Affected
+
+- Employee authentication credentials (usernames, session tokens)
+- Finance team files accessed on FILE-SRV01 (scope under investigation)
+- No confirmed exfiltration of PII or financial records at this time
+
+## Timeline
+
+| Date | Event |
+|------|-------|
+| 2026-05-03 02:14 UTC | Initial unauthorized access via phishing |
+| 2026-05-03 04:30 UTC | Detection by automated security monitoring |
+| 2026-05-03 05:00 UTC | Containment actions initiated |
+| 2026-05-04 00:00 UTC | This notification drafted |
+
+## Containment Actions Taken
+
+1. Compromised account suspended and credentials reset
+2. Affected systems isolated from network
+3. All active sessions terminated
+4. Enhanced monitoring deployed
+
+## Regulatory Obligations
+
+- **GDPR Art. 33**: Notification to supervisory authority required within 72 hours if personal data breach confirmed
+- **CCPA**: Notification to affected individuals required if personal information compromised
+- **Recommended action**: Legal review of data scope before filing; preliminary notification to DPA by 2026-05-06
+
+## Contact
+
+Data Protection Officer: [dpo@corp.com]
+Incident Response Lead: Security Operations Center
+"""
+
+
+def _comparative_narrative_mock(text: str) -> str:
+    text_lower = text.lower()
+    entity = "jsmith@corp.com" if "jsmith" in text_lower else "the analyzed entity"
+    is_high_deviation = any(w in text_lower for w in ["anomaly", "⚠", "deviation", "99th", "95th"])
+
+    if is_high_deviation or "jsmith" in text_lower:
+        return (
+            f"Behavioral analysis of {entity} reveals significant deviations across multiple dimensions that are highly inconsistent with normal activity patterns. "
+            f"The most critical anomaly is outbound data volume, which is running at 6x the organizational baseline (312 MB vs 50 MB/day) — a strong indicator of data staging or exfiltration activity. "
+            f"Additionally, the account shows 3 distinct login geographies where only 1 is expected, and 7 failed authentication attempts against a baseline of under 1 per day.\n\n"
+            f"The failed login pattern followed by a successful overseas login suggests a credential stuffing attack succeeded after multiple attempts. "
+            f"The encoded PowerShell executions (3 events vs. near-zero baseline) combined with the lateral movement to 9 unique hosts (baseline: 2.3) strongly suggest the account is being actively operated by a threat actor post-compromise.\n\n"
+            f"Recommended immediate actions: (1) Suspend the account and revoke sessions, (2) run a blast radius analysis to determine reachable assets, "
+            f"(3) hunt for T1003/T1021 indicators on the 9 accessed hosts, (4) deploy detection rule for this behavioral fingerprint to catch recurrence."
+        )
+    return (
+        f"Behavioral analysis of {entity} shows activity within normal operating parameters for this entity. "
+        f"Login frequency, geographic distribution, and network activity are all within 1 standard deviation of the organizational baseline. "
+        f"No significant anomalies were detected in the analysis window.\n\n"
+        f"The entity's peer percentile score indicates behavior is typical relative to similar roles in the organization. "
+        f"Encoded PowerShell executions and lateral movement events are at or below baseline.\n\n"
+        f"No immediate action is required. Continue standard monitoring and revisit if new alerts surface for this entity."
+    )
+
+
+def _rule_suggestion_mock(text: str) -> dict:
+    text_lower = text.lower()
+
+    if "geo" in text_lower or "country" in text_lower or "unusual location" in text_lower or "signin" in text_lower:
+        return {
+            "rule_name": "GeoAnomalyNewCountryLogin",
+            "rule_description": "Detects first-time login from a new country for a given user — enhanced with risk scoring and VPN exclusion",
+            "kql": "SigninLogs\n| where TimeGenerated > ago(1h)\n| where ResultType == 0\n| join kind=leftouter (\n    SigninLogs\n    | where TimeGenerated > ago(90d)\n    | summarize KnownCountries=make_set(CountryOrRegion), KnownIPs=make_set(IPAddress) by UserPrincipalName\n) on UserPrincipalName\n| where CountryOrRegion !in (KnownCountries)\n| where IPAddress !in (KnownIPs)\n| extend RiskScore = iff(CountryOrRegion in ('RU','CN','IR','KP'), 90, 60)\n| project TimeGenerated, UserPrincipalName, CountryOrRegion, IPAddress, RiskScore\n| order by RiskScore desc",
+            "severity": "high",
+            "technique_ids": ["T1078", "T1133"],
+            "mitre_tactics": ["Initial Access", "Defense Evasion"],
+            "false_positive_guidance": "Business travel, VPN exit nodes, and remote work from new locations. Maintain an approved-travel IP list and route exceptions through the allowlist process.",
+            "estimated_fp_rate": 0.10,
+            "tuning_recommendations": [
+                "Add exclusion for corporate VPN IP ranges (10.0.0.0/8, 192.168.0.0/16)",
+                "Reduce lookback from 90 days to 30 days for more dynamic baselines",
+                "Add MFA status field to triage high-confidence alerts automatically",
+            ],
+        }
+    elif "powershell" in text_lower or "encoded" in text_lower or "t1059" in text_lower:
+        return {
+            "rule_name": "EncodedPowerShellHighEntropy",
+            "rule_description": "Detects PowerShell with Base64-encoded commands, enhanced with process ancestry and entropy scoring",
+            "kql": "DeviceProcessEvents\n| where TimeGenerated > ago(1h)\n| where FileName =~ 'powershell.exe'\n| where ProcessCommandLine matches regex '(?i)-(e|enc|encodedcommand)\\\\s+[A-Za-z0-9+/=]{20,}'\n| extend ParentProcess = InitiatingProcessFileName\n| extend IsSuspiciousParent = ParentProcess in~ ('services.exe','svchost.exe','winword.exe','excel.exe','outlook.exe')\n| extend EntropyLen = strlen(extract('-(e|enc|encodedcommand)\\\\s+([A-Za-z0-9+/=]+)', 2, ProcessCommandLine))\n| where IsSuspiciousParent or EntropyLen > 200\n| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, ParentProcess, IsSuspiciousParent",
+            "severity": "high",
+            "technique_ids": ["T1059", "T1027"],
+            "mitre_tactics": ["Execution", "Defense Evasion"],
+            "false_positive_guidance": "Legitimate admin automation and monitoring agents use encoded PowerShell. Allowlist specific known-good base64 hashes and add parent process exclusions for trusted admin tools (psexec, ansible).",
+            "estimated_fp_rate": 0.18,
+            "tuning_recommendations": [
+                "Allowlist known monitoring agent process hashes",
+                "Add minimum encoded string length threshold (>200 chars reduces noise)",
+                "Exclude known CI/CD runner accounts from alerting",
+            ],
+        }
+    elif "lateral" in text_lower or "smb" in text_lower or "t1021" in text_lower:
+        return {
+            "rule_name": "LateralMovementMultiTargetSMB",
+            "rule_description": "Detects accounts using explicit credentials to access multiple systems via SMB within a short window",
+            "kql": "SecurityEvent\n| where TimeGenerated > ago(1h)\n| where EventID == 4648\n| where SubjectUserName !endswith '$'\n| where TargetServerName !in ('localhost','127.0.0.1')\n| summarize count(), Targets=make_set(TargetServerName), FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)\n    by SubjectUserName, WorkstationName\n| where count_ > 3\n| extend SpreadMinutes = datetime_diff('minute', LastSeen, FirstSeen)\n| where SpreadMinutes < 60\n| order by count_ desc",
+            "severity": "high",
+            "technique_ids": ["T1021", "T1078"],
+            "mitre_tactics": ["Lateral Movement"],
+            "false_positive_guidance": "Deployment scripts, backup agents, and admin tools scanning multiple hosts. Allowlist service accounts used for legitimate multi-host operations.",
+            "estimated_fp_rate": 0.07,
+            "tuning_recommendations": [
+                "Adjust target count threshold from 3 to 5 for larger environments",
+                "Add time-window compression analysis (rapid spread in <10 min is higher confidence)",
+                "Exclude known backup service accounts",
+            ],
+        }
+    else:
+        return {
+            "rule_name": "SuspiciousAuthenticationPattern",
+            "rule_description": "Detects anomalous authentication patterns based on investigation findings — failed logins followed by success from new IP",
+            "kql": "let FailedLogins = SigninLogs\n| where TimeGenerated > ago(1h)\n| where ResultType != 0\n| summarize FailCount=count() by UserPrincipalName, IPAddress;\nSigninLogs\n| where TimeGenerated > ago(1h)\n| where ResultType == 0\n| join kind=inner (FailedLogins) on UserPrincipalName\n| where FailCount > 5\n| project TimeGenerated, UserPrincipalName, IPAddress, CountryOrRegion, FailCount",
+            "severity": "high",
+            "technique_ids": ["T1078", "T1110"],
+            "mitre_tactics": ["Initial Access", "Credential Access"],
+            "false_positive_guidance": "Users who genuinely forgot passwords and then succeeded. Add a cooldown period — only alert if success follows failure within 30 minutes.",
+            "estimated_fp_rate": 0.15,
+            "tuning_recommendations": [
+                "Tune FailCount threshold per environment (5 is aggressive)",
+                "Add IP reputation scoring to auto-close known-good IPs",
+                "Correlate with MFA bypass events for higher confidence",
+            ],
+        }
+
+
 def _build_chips(text: str) -> dict:
     text_lower = text.lower()
     default_chips = [
@@ -520,6 +758,8 @@ async def complete_mock(
     elif "stage 4" in system.lower() or "plain-english explanation" in system.lower():
         # user_msg is the KQL + resolved descriptors — parse KQL to build explanation
         return json.dumps(_explain_kql(user_msg))
+    elif "rule suggestion enhanced" in system.lower():
+        return json.dumps(_rule_suggestion_mock(user_msg))
     elif "suggestion" in system.lower() or "chip" in system.lower():
         return json.dumps(_build_chips(user_msg))
     elif "alert triage" in system.lower() or "tp_probability" in system.lower() or ("score" in system.lower() and "alert" in system.lower()):
@@ -528,7 +768,15 @@ async def complete_mock(
         return _hunt_narrative_mock(user_msg)
     elif "timeline annotation" in system.lower() or ("one sentence" in system.lower() and "tactic" in system.lower()):
         return _stage_annotation_mock(user_msg)
-    elif "summariz" in system.lower() or "documentation" in system.lower():
+    elif "documentation technical" in system.lower():
+        return _doc_technical_mock(user_msg)
+    elif "documentation executive" in system.lower():
+        return _doc_executive_mock(user_msg)
+    elif "documentation regulatory" in system.lower():
+        return _doc_regulatory_mock(user_msg)
+    elif "comparative behavioral" in system.lower():
+        return _comparative_narrative_mock(user_msg)
+    elif "summariz" in system.lower():
         return """## Investigation Summary
 
 **What happened:** This investigation examined suspicious authentication patterns and network activity across multiple log sources.

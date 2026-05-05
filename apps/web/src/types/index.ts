@@ -152,3 +152,93 @@ export interface BreadcrumbEntry {
   confidence: number
   timestamp: string
 }
+
+// ── Phase 2 types ─────────────────────────────────────────────────────────────
+
+export interface ReachableAsset {
+  asset_id: string
+  asset_type: string
+  name: string
+  risk_level: 'critical' | 'high' | 'medium' | 'low'
+  path: string
+}
+
+export interface BlastRadiusResult {
+  blast_id: string
+  seed_entity: string
+  seed_entity_type: string
+  total_reachable_assets: number
+  reachable_assets: ReachableAsset[]
+  privileged_paths: Array<{ from: string; to: string; path: string; attack_vector: string }>
+  risk_score: number
+  containment_steps: string[]
+  estimated_scope: string
+  duration_ms: number
+}
+
+export interface DocSection {
+  heading: string
+  body: string
+}
+
+export interface DocumentationResult {
+  doc_id: string
+  variant: 'technical' | 'executive' | 'regulatory'
+  title: string
+  sections: DocSection[]
+  raw_markdown: string
+  generated_at: string
+  entity_scope: string
+  duration_ms: number
+}
+
+export interface DeviationMetric {
+  metric_name: string
+  current_value: number
+  baseline_value: number
+  deviation_pct: number
+  sigma: number
+  anomaly: boolean
+}
+
+export interface ComparativeResult {
+  comparative_id: string
+  entity: string
+  comparison_window: string
+  metrics: DeviationMetric[]
+  peer_percentile: number
+  overall_deviation_score: number
+  narrative: string
+  duration_ms: number
+}
+
+export interface RuleBacktest {
+  period: string
+  alert_count: number
+  tp_count: number
+  fp_count: number
+  estimated_fp_rate: number
+}
+
+export interface SimilarRule {
+  rule_id: string
+  name: string
+  similarity_score: number
+  technique_ids: string[]
+}
+
+export interface RuleSuggestionResult {
+  suggestion_id: string
+  rule_name: string
+  rule_description: string
+  kql: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  technique_ids: string[]
+  mitre_tactics: string[]
+  false_positive_guidance: string
+  estimated_fp_rate: number
+  backtest: RuleBacktest
+  similar_rules: SimilarRule[]
+  tuning_recommendations: string[]
+  duration_ms: number
+}

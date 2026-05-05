@@ -2,14 +2,25 @@ import { SearchBar } from './components/SearchBar/SearchBar'
 import { AlertTriagePanel } from './components/panels/AlertTriagePanel'
 import { HuntResultPanel } from './components/panels/HuntResultPanel'
 import { TimelinePanel } from './components/panels/TimelinePanel'
+import { BlastRadiusPanel } from './components/panels/BlastRadiusPanel'
+import { DocumentationPanel } from './components/panels/DocumentationPanel'
+import { ComparativeAnalysisPanel } from './components/panels/ComparativeAnalysisPanel'
+import { RuleSuggestionPanel } from './components/panels/RuleSuggestionPanel'
 import { useSessionStore } from './stores/sessionStore'
-import type { TriageResult, HuntResult, TimelineResult } from './types'
+import type {
+  TriageResult, HuntResult, TimelineResult,
+  BlastRadiusResult, DocumentationResult, ComparativeResult, RuleSuggestionResult,
+} from './types'
 
 const EXAMPLE_PROMPTS = [
   'Failed logins last 24h',
   'Triage my open alerts',
   'Hunt for LAPSUS$ TTPs',
   'Timeline for jsmith@corp.com',
+  'Blast radius for jsmith@corp.com',
+  'Compare jsmith behavior vs baseline',
+  'Write a technical report',
+  'Write a detection rule for this',
 ]
 
 function MainPanel() {
@@ -25,6 +36,22 @@ function MainPanel() {
 
   if (actionData?.handler === 'timeline') {
     return <TimelinePanel result={actionData.data as TimelineResult} />
+  }
+
+  if (actionData?.handler === 'blast_radius') {
+    return <BlastRadiusPanel result={actionData.data as BlastRadiusResult} />
+  }
+
+  if (actionData?.handler === 'documentation') {
+    return <DocumentationPanel result={actionData.data as DocumentationResult} />
+  }
+
+  if (actionData?.handler === 'comparative') {
+    return <ComparativeAnalysisPanel result={actionData.data as ComparativeResult} />
+  }
+
+  if (actionData?.handler === 'rule_suggestion') {
+    return <RuleSuggestionPanel result={actionData.data as RuleSuggestionResult} />
   }
 
   if (currentResult) {
@@ -70,7 +97,7 @@ export default function App() {
               <span className="text-white text-xs font-bold">S</span>
             </div>
             <span className="text-sm font-semibold text-white">SentinelIQ</span>
-            <span className="text-xs text-gray-500 ml-1">Phase 1</span>
+            <span className="text-xs text-gray-500 ml-1">Phase 2</span>
           </div>
 
           {/* Search bar — always visible, expands to fill */}

@@ -2,18 +2,24 @@ import json
 from typing import AsyncIterator
 from src.handlers.base_handler import BaseHandler
 from src.handlers.summarize_handler import SummarizeHandler
-from src.handlers.create_rule_handler import CreateRuleHandler
 from src.handlers.triage_handler import TriageHandler
 from src.handlers.hunt_handler import HuntHandler
 from src.handlers.timeline_handler import TimelineHandler
+from src.handlers.blast_radius_handler import BlastRadiusHandler
+from src.handlers.documentation_handler import DocumentationHandler
+from src.handlers.comparative_handler import ComparativeHandler
+from src.handlers.rule_suggestion_handler import RuleSuggestionHandler
 from src.models.session import SessionContext
 
 _REGISTRY: list[BaseHandler] = [
     SummarizeHandler(),
-    CreateRuleHandler(),
     TriageHandler(),
     HuntHandler(),
     TimelineHandler(),
+    BlastRadiusHandler(),
+    DocumentationHandler(),
+    ComparativeHandler(),
+    RuleSuggestionHandler(),
 ]
 
 _CONFIDENCE_THRESHOLD = 0.7

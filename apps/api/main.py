@@ -13,8 +13,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SentinelIQ API",
-    version="0.1.0",
-    description="AI-powered SIEM platform — Phase 0 AI Search Bar Engine",
+    version="0.2.0",
+    description="AI-powered SIEM platform — Phase 2: Blast Radius, Documentation, Comparative Analysis, Rule Suggestion",
     lifespan=lifespan,
 )
 
@@ -36,4 +36,4 @@ app.include_router(capabilities.router, prefix="/api/v1", tags=["capabilities"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
