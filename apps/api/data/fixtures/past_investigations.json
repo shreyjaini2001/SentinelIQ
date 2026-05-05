@@ -1,0 +1,35 @@
+[
+  {
+    "investigation_id": "INV-2026-0031",
+    "title": "Finance phishing campaign — March 2026",
+    "analyst": "analyst01@corp.com",
+    "opened_at": "2026-03-15T09:00:00Z",
+    "closed_at": "2026-03-17T16:30:00Z",
+    "outcome": "true_positive",
+    "affected_users": ["jsmith@corp.com", "klee@corp.com"],
+    "affected_hosts": ["DESKTOP-42", "DESKTOP-33"],
+    "ttps": ["T1566", "T1059", "T1078"],
+    "summary": "Phishing email with malicious Excel macro targeted Finance team. Two users opened attachment. No data exfiltration confirmed — payload blocked by AV.",
+    "kql_queries_used": [
+      "OfficeActivity | where UserId in ('jsmith@corp.com','klee@corp.com') | where Operation == 'AttachmentAccessed'",
+      "DeviceProcessEvents | where DeviceName in ('DESKTOP-42','DESKTOP-33') | where InitiatingProcessFileName =~ 'excel.exe'"
+    ],
+    "lessons_learned": "Add macro-execution alert rule for Office apps; finance team needs refresher training."
+  },
+  {
+    "investigation_id": "INV-2026-0018",
+    "title": "Service account password spray — January 2026",
+    "analyst": "analyst01@corp.com",
+    "opened_at": "2026-01-22T11:00:00Z",
+    "closed_at": "2026-01-22T14:00:00Z",
+    "outcome": "true_positive",
+    "affected_users": ["svc-backup@corp.com", "svc-monitor@corp.com"],
+    "affected_hosts": [],
+    "ttps": ["T1078"],
+    "summary": "Low-and-slow password spray targeting service accounts from Tor exit node. 3 accounts locked out. No successful authentication.",
+    "kql_queries_used": [
+      "SigninLogs | where ResultType == '50053' | summarize count() by IPAddress, UserPrincipalName | where count_ > 5"
+    ],
+    "lessons_learned": "Implement Conditional Access for service accounts; enforce IP allowlisting for non-interactive accounts."
+  }
+]

@@ -1,0 +1,185 @@
+{"text": "Show me failed logins from unusual geolocations in the last 6 hours", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Find all outbound connections to rare domains yesterday", "mode": "query", "intent_label": "network_log_search"}
+{"text": "What processes did svchost.exe spawn in the last 24 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Show me all privilege escalation events this week", "mode": "query", "intent_label": "privilege_escalation_search"}
+{"text": "Find lateral movement patterns in the last 3 days", "mode": "query", "intent_label": "lateral_movement_search"}
+{"text": "Which users logged in from multiple countries today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Show me file writes to sensitive directories in the last hour", "mode": "query", "intent_label": "file_log_search"}
+{"text": "Find all DNS queries to TLDs we've never seen before", "mode": "query", "intent_label": "network_log_search"}
+{"text": "What registry modifications happened on host-42 yesterday", "mode": "query", "intent_label": "file_log_search"}
+{"text": "Show me all brute force attempts against the VPN last week", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Find processes running from temp directories in the last 6 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "What accounts were created or modified today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Show me all PowerShell executions with encoded commands this week", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find high volume outbound traffic from any single host today", "mode": "query", "intent_label": "network_log_search"}
+{"text": "What service accounts ran commands interactively yesterday", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Show me all LSASS memory reads in the last 24 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find any new local admin accounts created this week", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What hosts communicated with known malicious IPs last month", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Show me all scheduled task creations in the last 48 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find RDP logins to servers from workstations", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What emails were sent with suspicious attachments yesterday", "mode": "query", "intent_label": "email_log_search"}
+{"text": "Show me all USB device connections in the finance department this week", "mode": "query", "intent_label": "file_log_search"}
+{"text": "Find first-time-ever login events for any user today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Show me all WMI executions in the last 6 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "What data was exfiltrated via email in the last 7 days", "mode": "query", "intent_label": "email_log_search"}
+{"text": "Find abnormal login times for jsmith this month", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Show me all Group Policy changes in the last 24 hours", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What rare processes ran on domain controllers this week", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find all connections to non-standard ports from the finance subnet", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Show me all accounts that accessed crown jewel database prod-db-01 today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Find all MFA bypass events in the last 3 days", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What hosts have unusual CPU usage patterns this week", "mode": "query", "intent_label": "system_log_search"}
+{"text": "Show me all shadow copy deletions in the last 24 hours", "mode": "query", "intent_label": "file_log_search"}
+{"text": "Find all Kerberoasting indicators today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What processes made DNS-over-HTTPS requests yesterday", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Show me all new firewall rules added this week", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Find all accounts with stale passwords that logged in this month", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What cloud storage uploads happened from unusual accounts today", "mode": "query", "intent_label": "file_log_search"}
+{"text": "Show me all certificate requests in the last 48 hours", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Find any domain controllers running scripts they shouldn't", "mode": "query", "intent_label": "process_log_search"}
+{"text": "What API calls to the management plane happened after hours yesterday", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Show me all service installations in the last 6 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find all anomalous print jobs from sensitive printers today", "mode": "query", "intent_label": "file_log_search"}
+{"text": "What accounts had their permissions elevated in Azure AD this week", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Show me all instances of mimikatz indicators in the last 24 hours", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Find all login events where device compliance check failed today", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What unusual DCOM activations happened on servers this week", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Show me all network shares accessed from outside the office subnet", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Find all macro executions in Office documents this week", "mode": "query", "intent_label": "process_log_search"}
+{"text": "What hosts contacted the same C2 beacon domain in the last 7 days", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Summarize this investigation", "mode": "action", "intent_label": "summarize_investigation"}
+{"text": "Write a post-incident report", "mode": "action", "intent_label": "generate_report"}
+{"text": "Create a detection rule for this pattern", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Triage my open alerts and score them for false positives", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Brief the incoming analyst on this shift", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Estimate blast radius if jsmith's account is compromised", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Why does this rule fire so much", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Help me tune alert rule X to reduce false positives", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Generate an executive summary of this incident", "mode": "action", "intent_label": "generate_report"}
+{"text": "Create a playbook for handling this type of alert", "mode": "action", "intent_label": "create_runbook"}
+{"text": "Turn this investigation into a detection rule", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Write my handoff summary for the next shift", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Generate a technical incident report for this investigation", "mode": "action", "intent_label": "generate_report"}
+{"text": "Score these 50 alerts for likelihood of true positive", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "What systems are at risk if this account is breached", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Document this investigation for compliance purposes", "mode": "action", "intent_label": "generate_report"}
+{"text": "Create a runbook for this alert type based on what I just did", "mode": "action", "intent_label": "create_runbook"}
+{"text": "Summarize the incident timeline for the CISO", "mode": "action", "intent_label": "generate_report"}
+{"text": "Turn these findings into an alert rule", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "What should the next shift analyst know about this", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Generate a regulatory compliance report for this incident", "mode": "action", "intent_label": "generate_report"}
+{"text": "Why is rule Y triggering 500 times per day", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Help me reduce noise on the brute force detection rule", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "What's the blast radius for this compromised service account", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Draft a post-incident brief for the security team", "mode": "action", "intent_label": "generate_report"}
+{"text": "Generate a detection from the patterns in these events", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Write a shift handoff for my replacement", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Map the access paths if this account is compromised", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Triage these alerts and sort by true positive likelihood", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Build a response playbook based on how I handled this incident", "mode": "action", "intent_label": "create_runbook"}
+{"text": "Explain why this detection rule has so many false positives", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Score the false positive probability for these alerts", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Generate an IOC list from this investigation", "mode": "action", "intent_label": "extract_iocs"}
+{"text": "Create an alert rule that would catch this attacker behavior", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Now filter that to just the finance department", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "What about last week instead", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add a filter for failed attempts only", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Show me just the top 10", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Narrow that down to just domain controllers", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Also include the source IP addresses", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Change the time range to 48 hours", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Now show me only high confidence events", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Limit that to jsmith's activity only", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add a count by country column", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Remove the geo filter from that", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Expand the window to 12 hours", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Now add a join with the alert table", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Make it show only the servers, not workstations", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Include IP addresses and hostnames in that result", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Order it by time ascending instead", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Filter out anything from the IT admin accounts", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "What about the same search but for Linux hosts", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add a where clause for accounts that haven't logged in before", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Group that by user instead of by host", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Hunt for anything that looks like LAPSUS$ TTPs this week", "mode": "query", "intent_label": "threat_hunt"}
+{"text": "Find signs of Scattered Spider activity in the last 3 days", "mode": "query", "intent_label": "threat_hunt"}
+{"text": "Look for credential dumping indicators in the last 24 hours", "mode": "query", "intent_label": "threat_hunt"}
+{"text": "Hunt for living-off-the-land techniques on our endpoints today", "mode": "query", "intent_label": "threat_hunt"}
+{"text": "Find MITRE T1078 valid accounts abuse this week", "mode": "query", "intent_label": "threat_hunt"}
+{"text": "Show me everything before and after this alert", "mode": "query", "intent_label": "timeline_reconstruction"}
+{"text": "Reconstruct the attack chain for incident 4821", "mode": "query", "intent_label": "timeline_reconstruction"}
+{"text": "Build a timeline for host-42 in the last 4 hours", "mode": "query", "intent_label": "timeline_reconstruction"}
+{"text": "What happened on this host before and after the alert fired", "mode": "query", "intent_label": "timeline_reconstruction"}
+{"text": "Show me the full event sequence around this suspicious event", "mode": "query", "intent_label": "timeline_reconstruction"}
+{"text": "How does jsmith's behavior today compare to their baseline", "mode": "query", "intent_label": "comparative_query"}
+{"text": "Is this host acting normally compared to peers", "mode": "query", "intent_label": "comparative_query"}
+{"text": "Flag anything unusual about this user vs their peers this week", "mode": "query", "intent_label": "comparative_query"}
+{"text": "Show me anomalies in jsmith's activity compared to the last 90 days", "mode": "query", "intent_label": "comparative_query"}
+{"text": "Is the data transfer volume for this account normal today", "mode": "query", "intent_label": "comparative_query"}
+{"text": "Show me failed logins", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Auth failures", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Lateral movement", "mode": "query", "intent_label": "lateral_movement_search"}
+{"text": "Privilege esc", "mode": "query", "intent_label": "privilege_escalation_search"}
+{"text": "C2 traffic", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Mimikatz", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Ransomware indicators", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Data exfil", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Admin logons", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Suspicious PowerShell", "mode": "query", "intent_label": "process_log_search"}
+{"text": "Show me auth failures and create a rule for it", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Find logins and also triage them", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "What happened with this and can you also summarize it", "mode": "query", "intent_label": "log_search"}
+{"text": "Run a search for lateral movement patterns and then create a detection", "mode": "query", "intent_label": "lateral_movement_search"}
+{"text": "Maybe show me the failed logins? I think", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Er, can you look at the network stuff from yesterday", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Not sure but I think there might be some weird auth activity", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Something is happening with user jsmith I need to investigate", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Look at the logs from last night", "mode": "query", "intent_label": "log_search"}
+{"text": "Something suspicious is going on", "mode": "query", "intent_label": "log_search"}
+{"text": "Show me failed logins using Splunk SPL format", "mode": "query", "intent_label": "auth_log_search"}
+{"text": "Give me the network anomalies in Elastic EQL", "mode": "query", "intent_label": "network_log_search"}
+{"text": "Find privilege escalation using KQL", "mode": "query", "intent_label": "privilege_escalation_search"}
+{"text": "Translate this to Sentinel KQL: index=* EventCode=4625", "mode": "query", "intent_label": "query_translation"}
+{"text": "What does this query do: SecurityEvent | where EventID == 4625", "mode": "query", "intent_label": "query_explanation"}
+{"text": "Exclude the IT admin accounts from that last result", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Only show me events from the production environment", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add geolocation context to the results", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Show the same thing but sorted differently", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add a percentage column", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Include parent process info", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Limit to severity high only", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Pull in the user's department from HR lookup", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Bucket the results by hour", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Show me only the ones that also match alert rule XYZ", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Triage the open alerts in my queue", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Which of today's alerts are likely false positives", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Brief the next analyst on everything I investigated today", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Write a playbook for SQL injection response", "mode": "action", "intent_label": "create_runbook"}
+{"text": "What's at risk if host-42 is compromised", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Document this incident for legal review", "mode": "action", "intent_label": "generate_report"}
+{"text": "Create an alert from the pattern I just found", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Coach me on why rule ABC keeps firing", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Write a PCI DSS compliant report for this incident", "mode": "action", "intent_label": "generate_report"}
+{"text": "Generate a MITRE ATT&CK aligned detection for this behavior", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Summarize the top 3 risks from today's investigation", "mode": "action", "intent_label": "summarize_investigation"}
+{"text": "Create a shift summary for the SOC manager", "mode": "action", "intent_label": "shift_handoff"}
+{"text": "Tune this rule to stop alerting on service accounts", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Build a runbook from how I handled this ransomware alert", "mode": "action", "intent_label": "create_runbook"}
+{"text": "Identify all systems reachable from the compromised account", "mode": "action", "intent_label": "blast_radius"}
+{"text": "Write an executive summary suitable for board presentation", "mode": "action", "intent_label": "generate_report"}
+{"text": "Score these alerts by severity and false positive risk", "mode": "action", "intent_label": "triage_alerts"}
+{"text": "Generate a Sigma rule for this detection", "mode": "action", "intent_label": "create_detection_rule"}
+{"text": "Create a response playbook for phishing incidents", "mode": "action", "intent_label": "create_runbook"}
+{"text": "Suppress false positives from this geolocation", "mode": "action", "intent_label": "noise_coaching"}
+{"text": "Draft incident report including IOCs and timeline", "mode": "action", "intent_label": "generate_report"}
+{"text": "Filter the previous query to the last 3 hours only", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Show only critical severity results", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Combine with the network events for the same host", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Now include the alert context for each event", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Show only events where count is greater than 10", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Pivot on the source IP instead of the user", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Add a trend line over the last 7 days", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Exclude known good IPs from the results", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Focus on the exec team accounts only", "mode": "refine", "intent_label": "query_refinement"}
+{"text": "Compare with yesterday's baseline", "mode": "refine", "intent_label": "query_refinement"}

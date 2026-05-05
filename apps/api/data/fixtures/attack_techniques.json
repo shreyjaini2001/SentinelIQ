@@ -1,0 +1,119 @@
+{
+  "T1078": {
+    "name": "Valid Accounts",
+    "tactic": "Initial Access",
+    "description": "Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access.",
+    "table": "SigninLogs",
+    "query_template": "SigninLogs | where TimeGenerated > ago({window}) | where ResultType == 0 | summarize count() by UserPrincipalName, IPAddress, CountryOrRegion | where count_ > 20",
+    "detection_field": "ResultType",
+    "threat_actors": ["lapsus$", "scattered spider", "apt29"]
+  },
+  "T1059": {
+    "name": "Command and Scripting Interpreter",
+    "tactic": "Execution",
+    "description": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.",
+    "table": "DeviceProcessEvents",
+    "query_template": "DeviceProcessEvents | where TimeGenerated > ago({window}) | where FileName in~ ('powershell.exe','cmd.exe','wscript.exe','cscript.exe') | where ProcessCommandLine contains '-enc' or ProcessCommandLine contains 'DownloadString' | project TimeGenerated, DeviceName, ProcessCommandLine",
+    "detection_field": "ProcessCommandLine",
+    "threat_actors": ["lapsus$", "scattered spider", "conti", "lockbit", "apt29", "lazarus"]
+  },
+  "T1136": {
+    "name": "Create Account",
+    "tactic": "Persistence",
+    "description": "Adversaries may create an account to maintain access to victim systems.",
+    "table": "SecurityEvent",
+    "query_template": "SecurityEvent | where TimeGenerated > ago({window}) | where EventID in (4720, 4726) | project TimeGenerated, Account, Computer, Activity",
+    "detection_field": "EventID",
+    "threat_actors": ["lapsus$", "scattered spider"]
+  },
+  "T1053": {
+    "name": "Scheduled Task/Job",
+    "tactic": "Persistence",
+    "description": "Adversaries may abuse task scheduling functionality to facilitate initial or recurring execution of malicious code.",
+    "table": "DeviceProcessEvents",
+    "query_template": "DeviceProcessEvents | where TimeGenerated > ago({window}) | where FileName =~ 'schtasks.exe' and ProcessCommandLine contains '/create' | project TimeGenerated, DeviceName, ProcessCommandLine",
+    "detection_field": "ProcessCommandLine",
+    "threat_actors": ["conti", "lockbit"]
+  },
+  "T1055": {
+    "name": "Process Injection",
+    "tactic": "Defense Evasion",
+    "description": "Adversaries may inject code into processes in order to evade process-based defenses as well as possibly elevate privileges.",
+    "table": "DeviceProcessEvents",
+    "query_template": "DeviceProcessEvents | where TimeGenerated > ago({window}) | where InitiatingProcessFileName !in~ ('explorer.exe','svchost.exe') | where FileName in~ ('rundll32.exe','regsvr32.exe','mshta.exe') | project TimeGenerated, DeviceName, InitiatingProcessFileName, FileName",
+    "detection_field": "FileName",
+    "threat_actors": ["apt29", "lockbit"]
+  },
+  "T1003": {
+    "name": "OS Credential Dumping",
+    "tactic": "Credential Access",
+    "description": "Adversaries may attempt to dump credentials to obtain account login and credential material.",
+    "table": "DeviceProcessEvents",
+    "query_template": "DeviceProcessEvents | where TimeGenerated > ago({window}) | where FileName in~ ('lsass.exe','procdump.exe','mimikatz.exe') or ProcessCommandLine has_any ('sekurlsa','logonpasswords','lsadump') | project TimeGenerated, DeviceName, ProcessCommandLine",
+    "detection_field": "ProcessCommandLine",
+    "threat_actors": ["lapsus$", "conti", "lockbit", "apt29", "lazarus"]
+  },
+  "T1021": {
+    "name": "Remote Services",
+    "tactic": "Lateral Movement",
+    "description": "Adversaries may use valid accounts to log into a service specifically designed to accept remote connections.",
+    "table": "SecurityEvent",
+    "query_template": "SecurityEvent | where TimeGenerated > ago({window}) | where EventID == 4624 | where LogonType == 10 or LogonType == 3 | summarize Targets=dcount(Computer), TargetList=make_set(Computer) by Account | where Targets > 3",
+    "detection_field": "LogonType",
+    "threat_actors": ["scattered spider", "conti", "apt29"]
+  },
+  "T1041": {
+    "name": "Exfiltration Over C2 Channel",
+    "tactic": "Exfiltration",
+    "description": "Adversaries may steal data by exfiltrating it over an existing command and control channel.",
+    "table": "DeviceNetworkEvents",
+    "query_template": "DeviceNetworkEvents | where TimeGenerated > ago({window}) | where RemoteIPType == 'Public' | summarize Bytes=sum(AdditionalFields.BytesSent), Connections=count() by DeviceName, RemoteIP | where Bytes > 50000000",
+    "detection_field": "BytesSent",
+    "threat_actors": ["conti", "lockbit", "apt29", "lazarus"]
+  },
+  "T1486": {
+    "name": "Data Encrypted for Impact",
+    "tactic": "Impact",
+    "description": "Adversaries may encrypt data on target systems or on large numbers of systems in a network to interrupt availability to system and network resources.",
+    "table": "DeviceFileEvents",
+    "query_template": "DeviceFileEvents | where TimeGenerated > ago({window}) | where ActionType == 'FileModified' | summarize Extensions=make_set(extractjson('$.FileExtension', AdditionalFields)), Count=count() by DeviceName | where Count > 100",
+    "detection_field": "ActionType",
+    "threat_actors": ["conti", "lockbit"]
+  },
+  "T1566": {
+    "name": "Phishing",
+    "tactic": "Initial Access",
+    "description": "Adversaries may send phishing messages to gain access to victim systems.",
+    "table": "OfficeActivity",
+    "query_template": "OfficeActivity | where TimeGenerated > ago({window}) | where Operation == 'AttachmentAccessed' | where SourceFileExtension in~ ('exe','bat','ps1','vbs','lnk','hta') | project TimeGenerated, UserId, SourceFileName",
+    "detection_field": "SourceFileExtension",
+    "threat_actors": ["lazarus"]
+  },
+  "T1548": {
+    "name": "Abuse Elevation Control Mechanism",
+    "tactic": "Privilege Escalation",
+    "description": "Adversaries may circumvent mechanisms designed to control elevate privileges to gain higher-level permissions.",
+    "table": "SecurityEvent",
+    "query_template": "SecurityEvent | where TimeGenerated > ago({window}) | where EventID == 4672 and SubjectUserName !endswith '$' | where PrivilegeList contains 'SeDebugPrivilege' | project TimeGenerated, SubjectUserName, PrivilegeList, Computer",
+    "detection_field": "PrivilegeList",
+    "threat_actors": ["apt29", "conti"]
+  },
+  "T1069": {
+    "name": "Permission Groups Discovery",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to find group and permission settings to identify how they can abuse or use existing roles.",
+    "table": "DeviceProcessEvents",
+    "query_template": "DeviceProcessEvents | where TimeGenerated > ago({window}) | where ProcessCommandLine has_any ('net group','net localgroup','Get-ADGroupMember') | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine",
+    "detection_field": "ProcessCommandLine",
+    "threat_actors": ["lapsus$", "scattered spider", "apt29"]
+  },
+  "T1018": {
+    "name": "Remote System Discovery",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to get a listing of other systems by IP address, hostname, or other logical identifier on a network.",
+    "table": "DeviceNetworkEvents",
+    "query_template": "DeviceNetworkEvents | where TimeGenerated > ago({window}) | summarize Targets=dcount(RemoteIP) by DeviceName, InitiatingProcessFileName | where Targets > 50 | project-away Targets",
+    "detection_field": "RemoteIP",
+    "threat_actors": ["conti", "lockbit"]
+  }
+}

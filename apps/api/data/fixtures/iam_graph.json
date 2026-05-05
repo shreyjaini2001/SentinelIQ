@@ -1,0 +1,29 @@
+{
+  "groups": [
+    {"id": "GRP-001", "name": "Domain-Admins", "members": ["U002", "U004"], "type": "security"},
+    {"id": "GRP-002", "name": "Finance-Users", "members": ["U001", "U003"], "type": "security"},
+    {"id": "GRP-003", "name": "IT-Staff", "members": ["U004"], "type": "security"},
+    {"id": "GRP-004", "name": "Security-Team", "members": ["U005"], "type": "security"},
+    {"id": "GRP-005", "name": "VPN-Users", "members": ["U001", "U003", "U004"], "type": "security"},
+    {"id": "GRP-006", "name": "Backup-Operators", "members": ["U002"], "type": "security"},
+    {"id": "GRP-007", "name": "SIEM-Analysts", "members": ["U005"], "type": "security"}
+  ],
+  "roles": [
+    {"id": "ROLE-001", "name": "Domain Admin", "assigned_to": ["U002", "U004"], "risk": "critical"},
+    {"id": "ROLE-002", "name": "Backup Operator", "assigned_to": ["U002"], "risk": "high"},
+    {"id": "ROLE-003", "name": "Local Admin", "assigned_to": ["U004"], "risk": "high"},
+    {"id": "ROLE-004", "name": "Finance Read", "assigned_to": ["U001", "U003"], "risk": "medium"}
+  ],
+  "service_principals": [
+    {"id": "SP-001", "name": "AzureBackup", "permissions": ["Storage.ReadWrite"], "owner": "U002"},
+    {"id": "SP-002", "name": "SentinelIQ-App", "permissions": ["Log.Read"], "owner": "U005"}
+  ],
+  "privileged_access_paths": [
+    {
+      "from": "U001",
+      "to": "GRP-001",
+      "path": "U001 → DESKTOP-42 → LOCAL_ADMIN → GRP-001",
+      "attack_vector": "Credential theft + local privilege escalation"
+    }
+  ]
+}

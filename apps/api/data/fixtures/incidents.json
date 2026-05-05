@@ -1,0 +1,50 @@
+[
+  {
+    "incident_id": "INC-2026-0042",
+    "title": "Suspected account compromise and lateral movement — jsmith@corp.com",
+    "severity": "critical",
+    "status": "active",
+    "created_at": "2026-05-04T02:30:00Z",
+    "assigned_to": "analyst01@corp.com",
+    "alert_ids": ["ALT-2026-0001", "ALT-2026-0005", "ALT-2026-0006", "ALT-2026-0007", "ALT-2026-0008"],
+    "entities": ["jsmith@corp.com", "SERVER-DC01", "FILE-SRV01", "DESKTOP-42", "185.220.101.45"],
+    "ttps": ["T1078", "T1059", "T1003", "T1021", "T1041"],
+    "mitre_stage": "Exfiltration",
+    "summary": "Initial login from Russian IP on jsmith account, followed by privilege escalation, LSASS dump, lateral movement to DC, and 50MB data exfiltration.",
+    "timeline_start": "2026-05-04T00:30:00Z",
+    "timeline_end": "2026-05-04T01:05:00Z",
+    "containment_status": "not_contained"
+  },
+  {
+    "incident_id": "INC-2026-0041",
+    "title": "Brute force attack against VPN portal",
+    "severity": "medium",
+    "status": "investigating",
+    "created_at": "2026-05-04T01:50:00Z",
+    "assigned_to": null,
+    "alert_ids": ["ALT-2026-0004"],
+    "entities": ["203.0.113.42"],
+    "ttps": ["T1078"],
+    "mitre_stage": "Initial Access",
+    "summary": "8 failed login attempts against admin account from Digital Ocean IP in 5-minute window. No successful authentication.",
+    "timeline_start": "2026-05-04T01:45:00Z",
+    "timeline_end": "2026-05-04T01:50:00Z",
+    "containment_status": "blocked"
+  },
+  {
+    "incident_id": "INC-2026-0039",
+    "title": "Suspicious scheduled task — DESKTOP-17",
+    "severity": "medium",
+    "status": "closed",
+    "created_at": "2026-05-03T04:15:00Z",
+    "assigned_to": "analyst01@corp.com",
+    "alert_ids": ["ALT-2026-0009"],
+    "entities": ["DESKTOP-17", "mreyes@corp.com"],
+    "ttps": ["T1053"],
+    "mitre_stage": "Persistence",
+    "summary": "Scheduled task created to run payload.exe — investigated and found to be mreyes testing a patch script. False positive.",
+    "timeline_start": "2026-05-03T04:10:00Z",
+    "timeline_end": "2026-05-03T04:30:00Z",
+    "containment_status": "false_positive"
+  }
+]

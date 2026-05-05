@@ -1,0 +1,35 @@
+{
+  "auth": {
+    "avg_daily_logins_per_user": 4.2,
+    "avg_failed_logins_per_user_per_day": 0.8,
+    "brute_force_threshold": 5,
+    "geo_anomaly_threshold": 1,
+    "off_hours_login_rate": 0.04,
+    "known_vpn_ips": ["10.0.0.0/8", "192.168.0.0/16"],
+    "service_account_login_windows": {
+      "svc-backup@corp.com": {"hours": "01:00-05:00", "days": ["Monday","Tuesday","Wednesday","Thursday","Friday"]}
+    }
+  },
+  "network": {
+    "avg_outbound_bytes_per_host_per_day": 52428800,
+    "max_outbound_bytes_alert_threshold": 104857600,
+    "known_external_services": ["8.8.8.8", "1.1.1.1", "*.microsoft.com", "*.office365.com"],
+    "avg_dns_queries_per_host_per_hour": 120,
+    "dns_tunneling_threshold": 500
+  },
+  "process": {
+    "rare_parent_child_pairs": [
+      {"parent": "services.exe", "child": "powershell.exe"},
+      {"parent": "lsass.exe", "child": "cmd.exe"},
+      {"parent": "svchost.exe", "child": "powershell.exe"}
+    ],
+    "known_admin_tools": ["psexec.exe", "wmic.exe", "net.exe", "nltest.exe"],
+    "encoded_powershell_rate_per_day": 2.1
+  },
+  "user_behavior": {
+    "avg_unique_hosts_accessed_per_user_per_day": 2.3,
+    "lateral_movement_threshold": 5,
+    "privilege_escalation_events_per_day": 0.3,
+    "data_access_baseline_gb_per_user_per_day": 0.8
+  }
+}

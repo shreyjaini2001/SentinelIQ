@@ -1,0 +1,62 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+
+# Python coverage
+.coverage
+coverage.xml
+htmlcov/
+coverage/
+
+# Runtime databases / local state
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+apps/api/data/*.db
+apps/api/data/*.sqlite
+apps/api/data/runtime/
+
+# Node
+node_modules/
+dist/
+.dist/
+build/
+*.tsbuildinfo
+apps/web/dist/
+apps/web/.vite/
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

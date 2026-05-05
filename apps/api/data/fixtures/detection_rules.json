@@ -1,0 +1,57 @@
+[
+  {
+    "rule_id": "RULE-001",
+    "name": "GeoAnomalyLogin",
+    "description": "Detects login attempts from countries not in user's baseline geography",
+    "severity": "high",
+    "enabled": true,
+    "technique_ids": ["T1078"],
+    "kql": "SigninLogs | where TimeGenerated > ago(1h) | where ResultType == 0 | join kind=leftouter (SigninLogs | where TimeGenerated > ago(90d) | summarize KnownCountries=make_set(Location) by UserPrincipalName) on UserPrincipalName | where CountryOrRegion !in (KnownCountries) | project TimeGenerated, UserPrincipalName, CountryOrRegion, IPAddress",
+    "false_positive_rate": 0.12,
+    "alert_count_30d": 47
+  },
+  {
+    "rule_id": "RULE-002",
+    "name": "EncodedPowerShell",
+    "description": "Detects PowerShell executed with Base64-encoded commands (-enc/-EncodedCommand)",
+    "severity": "medium",
+    "enabled": true,
+    "technique_ids": ["T1059"],
+    "kql": "DeviceProcessEvents | where TimeGenerated > ago(1h) | where FileName =~ 'powershell.exe' | where ProcessCommandLine matches regex '(?i)-(e|enc|encodedcommand)\\s+[A-Za-z0-9+/=]{20,}' | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine",
+    "false_positive_rate": 0.28,
+    "alert_count_30d": 23
+  },
+  {
+    "rule_id": "RULE-003",
+    "name": "CredentialDumping",
+    "description": "Detects LSASS memory access patterns associated with credential dumping tools",
+    "severity": "critical",
+    "enabled": true,
+    "technique_ids": ["T1003"],
+    "kql": "DeviceProcessEvents | where TimeGenerated > ago(1h) | where (FileName in~ ('procdump.exe','taskmgr.exe','processhacker.exe') and ProcessCommandLine contains 'lsass') or ProcessCommandLine has_any ('sekurlsa','logonpasswords','MiniDump') | project TimeGenerated, DeviceName, FileName, ProcessCommandLine",
+    "false_positive_rate": 0.02,
+    "alert_count_30d": 3
+  },
+  {
+    "rule_id": "RULE-004",
+    "name": "LateralMovementSMB",
+    "description": "Detects explicit credential use (event 4648) for SMB lateral movement",
+    "severity": "high",
+    "enabled": true,
+    "technique_ids": ["T1021"],
+    "kql": "SecurityEvent | where TimeGenerated > ago(1h) | where EventID == 4648 | where SubjectUserName !endswith '$' | summarize count(), Targets=make_set(TargetServerName) by SubjectUserName, WorkstationName | where count_ > 3 | project SubjectUserName, WorkstationName, count_, Targets",
+    "false_positive_rate": 0.05,
+    "alert_count_30d": 12
+  },
+  {
+    "rule_id": "RULE-005",
+    "name": "DataExfiltration",
+    "description": "Detects large outbound transfers (>50MB) to public IPs",
+    "severity": "high",
+    "enabled": true,
+    "technique_ids": ["T1041"],
+    "kql": "DeviceNetworkEvents | where TimeGenerated > ago(1h) | where RemoteIPType == 'Public' | extend BytesSentMB = tolong(AdditionalFields.BytesSent) / 1048576 | where BytesSentMB > 50 | project TimeGenerated, DeviceName, RemoteIP, BytesSentMB",
+    "false_positive_rate": 0.08,
+    "alert_count_30d": 7
+  }
+]
