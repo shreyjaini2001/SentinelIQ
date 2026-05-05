@@ -246,20 +246,94 @@ def _explain_kql(kql_text: str) -> dict:
 
 
 def _detect_mode(text: str) -> dict:
-    text_lower = text.lower()
-    action_words = {"summarize", "summary", "report", "document", "create rule", "create a rule",
-                    "turn this into", "triage", "score", "blast radius", "handoff", "playbook",
-                    "runbook", "brief", "write", "detection rule", "generate", "estimate",
-                    "explain why", "why does", "help me tune", "coach", "create a detection",
-                    "create playbook", "create runbook"}
-    refine_words = {"now filter", "add filter", "change to", "instead", "narrow down",
-                    "just the", "only show", "also include", "remove the", "what about",
-                    "show only", "add a filter", "limit to"}
+    text_lower = text.lower().strip()
 
-    if any(w in text_lower for w in action_words):
-        return {"mode": "action", "intent_label": "action_request", "confidence": 0.92, "extracted_entities": []}
-    if any(w in text_lower for w in refine_words):
+    # The message may be wrapped: "Classify this analyst input:\n\nInput: {user_text}"
+    # Extract just the user text for intent-checking to avoid false primary-intent detection
+    actual_lower = text_lower
+    if "input: " in actual_lower:
+        actual_lower = actual_lower.split("input: ", 1)[1].strip()
+
+    # Refine signals — checked first (most context-dependent, safest signals)
+    refine_phrases = {
+        # Narrowing scope
+        "narrow that", "narrow it", "narrow down to",
+        "limit that", "limit it to",
+        "focus on the", "focus only",
+        "only the ones",
+        # Time / window changes
+        "change the time", "change the filter", "change the range", "change the window",
+        "expand the window", "expand the time", "expand that",
+        # Explicit result-context words
+        "in that result", "from that result", "to the results", "from the results",
+        "to those results", "from those results",
+        "from that last", "that last result",
+        "the previous query", "the previous result", "filter the previous",
+        "the same thing but", "same results",
+        "for the same host", "for the same",
+        # Exclusions on existing results
+        "filter out", "exclude the", "exclude known", "exclude anything",
+        # Additions / augmentations
+        "add a count", "add a column", "add a where", "add a percentage",
+        "add a trend", "add geolocation", "add context to",
+        "pull in the",
+        "include parent",
+        "now add", "now include",
+        "now show me only", "now show only",
+        "combine with", "add a join",
+        # Transformations
+        "bucket the", "bucket by",
+        "sorted differently", "sort by that",
+        "compare with",
+        # Legacy originals
+        "now filter", "add filter", "change to", "instead",
+        "just the", "only show", "also include", "remove the",
+        "what about", "show only", "add a filter", "limit to",
+    }
+
+    # Hybrid-query detector: "Show me X and also triage it" → primary intent is query
+    _QUERY_STARTERS = (
+        "show me", "find ", "search", "look for", "get me",
+        "run a search", "fetch", "query ", "what happened",
+        "pull up", "list ", "display ",
+    )
+
+    def _is_hybrid_query() -> bool:
+        # Use actual_lower (user text without prompt wrapper) for primary-intent detection
+        t = actual_lower
+        if " and " not in t:
+            return False
+        primary = t[:t.index(" and ")].strip()
+        return any(primary.startswith(s) for s in _QUERY_STARTERS)
+
+    # Action signals — "write" and "document" narrowed to avoid matching "file writes" / "Office documents"
+    action_phrases = {
+        "summarize", "summary", "report",
+        "document this", "document the",
+        "create rule", "create a rule", "create an alert rule", "create an alert",
+        "turn this into", "turn these", "turn those",
+        "triage", "score", "blast radius", "handoff", "playbook",
+        "runbook", "brief", "detection rule", "generate", "estimate",
+        "explain why", "why does", "why is rule", "why is this rule",
+        "help me tune", "coach", "create a detection", "create playbook", "create runbook",
+        "at risk", "what's at risk", "what is at risk",
+        "next shift",
+        "access paths", "reachable from",
+        "compromised account", "if this account is", "is compromised",
+        "likely false positive", "likely false positives",
+        "tune this rule", "tune the rule",
+        "suppress false",
+        "identify all systems",
+        "write a rule", "write a report", "write a playbook", "write a detection", "write a summary",
+    }
+
+    # Priority: refine > action (with hybrid-query guard) > query
+    if any(phrase in text_lower for phrase in refine_phrases):
         return {"mode": "refine", "intent_label": "query_refinement", "confidence": 0.88, "extracted_entities": []}
+
+    if any(phrase in text_lower for phrase in action_phrases):
+        if not _is_hybrid_query():
+            return {"mode": "action", "intent_label": "action_request", "confidence": 0.92, "extracted_entities": []}
 
     # Extract entities
     entities = []

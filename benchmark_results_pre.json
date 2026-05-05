@@ -1,0 +1,383 @@
+{
+  "total": 185,
+  "correct": 142,
+  "accuracy": 0.7676,
+  "per_class": {
+    "query": {
+      "total": 90,
+      "correct": 84,
+      "accuracy": 0.9333
+    },
+    "action": {
+      "total": 55,
+      "correct": 43,
+      "accuracy": 0.7818
+    },
+    "refine": {
+      "total": 40,
+      "correct": 15,
+      "accuracy": 0.375
+    }
+  },
+  "confusion_matrix": {
+    "query": {
+      "query": 84,
+      "action": 6
+    },
+    "action": {
+      "action": 43,
+      "query": 12
+    },
+    "refine": {
+      "refine": 15,
+      "query": 25
+    }
+  },
+  "failed_cases": [
+    {
+      "index": 7,
+      "text": "Show me file writes to sensitive directories in the last hour",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 49,
+      "text": "Find all macro executions in Office documents this week",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 65,
+      "text": "What systems are at risk if this account is breached",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 69,
+      "text": "Turn these findings into an alert rule",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 70,
+      "text": "What should the next shift analyst know about this",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 72,
+      "text": "Why is rule Y triggering 500 times per day",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 78,
+      "text": "Map the access paths if this account is compromised",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 84,
+      "text": "Create an alert rule that would catch this attacker behavior",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 89,
+      "text": "Narrow that down to just domain controllers",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 91,
+      "text": "Change the time range to 48 hours",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 92,
+      "text": "Now show me only high confidence events",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 93,
+      "text": "Limit that to jsmith's activity only",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 94,
+      "text": "Add a count by country column",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 96,
+      "text": "Expand the window to 12 hours",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 97,
+      "text": "Now add a join with the alert table",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 99,
+      "text": "Include IP addresses and hostnames in that result",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 101,
+      "text": "Filter out anything from the IT admin accounts",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 103,
+      "text": "Add a where clause for accounts that haven't logged in before",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 130,
+      "text": "Show me auth failures and create a rule for it",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 131,
+      "text": "Find logins and also triage them",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 132,
+      "text": "What happened with this and can you also summarize it",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 133,
+      "text": "Run a search for lateral movement patterns and then create a detection",
+      "expected": "query",
+      "predicted": "action",
+      "confidence": 0.92,
+      "intent_label": "action_request"
+    },
+    {
+      "index": 145,
+      "text": "Exclude the IT admin accounts from that last result",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 147,
+      "text": "Add geolocation context to the results",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 148,
+      "text": "Show the same thing but sorted differently",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 149,
+      "text": "Add a percentage column",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 150,
+      "text": "Include parent process info",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "process_log_search"
+    },
+    {
+      "index": 152,
+      "text": "Pull in the user's department from HR lookup",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 153,
+      "text": "Bucket the results by hour",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 154,
+      "text": "Show me only the ones that also match alert rule XYZ",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 156,
+      "text": "Which of today's alerts are likely false positives",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 159,
+      "text": "What's at risk if host-42 is compromised",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 161,
+      "text": "Create an alert from the pattern I just found",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 167,
+      "text": "Tune this rule to stop alerting on service accounts",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 169,
+      "text": "Identify all systems reachable from the compromised account",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 174,
+      "text": "Suppress false positives from this geolocation",
+      "expected": "action",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 176,
+      "text": "Filter the previous query to the last 3 hours only",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 178,
+      "text": "Combine with the network events for the same host",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "network_log_search"
+    },
+    {
+      "index": 179,
+      "text": "Now include the alert context for each event",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 182,
+      "text": "Add a trend line over the last 7 days",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 183,
+      "text": "Exclude known good IPs from the results",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 184,
+      "text": "Focus on the exec team accounts only",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    },
+    {
+      "index": 185,
+      "text": "Compare with yesterday's baseline",
+      "expected": "refine",
+      "predicted": "query",
+      "confidence": 0.87,
+      "intent_label": "log_search"
+    }
+  ],
+  "errors": []
+}
