@@ -5,20 +5,31 @@ from src.models.session import SessionContext
 from src.capabilities.documentation import generate_documentation, Variant
 
 _VARIANT_MAP: dict[str, Variant] = {
+    # Executive indicators — checked before technical to catch "executive summary"
     "executive": "executive",
     "exec": "executive",
     "board": "executive",
     "ciso": "executive",
+    "leadership": "executive",
+    "summary": "executive",
+    # Regulatory indicators
     "regulatory": "regulatory",
     "compliance": "regulatory",
     "gdpr": "regulatory",
     "hipaa": "regulatory",
     "breach": "regulatory",
     "notification": "regulatory",
+    "audit": "regulatory",
+    "soc 2": "regulatory",
+    "pci": "regulatory",
+    "iso": "regulatory",
+    # Technical indicators
     "technical": "technical",
     "tech": "technical",
     "forensic": "technical",
     "detailed": "technical",
+    "incident report": "technical",
+    "full detail": "technical",
 }
 
 _ENTITY_RE = re.compile(
@@ -78,7 +89,7 @@ class DocumentationHandler(BaseHandler):
     ]
 
     async def run(self, ctx: SessionContext) -> AsyncIterator[dict]:
-        user_text = ctx.query_history[-1].original_text if ctx.query_history else ""
+        user_text = ctx.last_action_text or (ctx.query_history[-1].original_text if ctx.query_history else "")
         variant = _pick_variant(user_text)
 
         variant_labels = {

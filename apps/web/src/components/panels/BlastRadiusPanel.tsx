@@ -71,7 +71,7 @@ export function BlastRadiusPanel({ result }: Props) {
   )
 
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
+    <div data-testid="blast-radius-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 bg-gray-900/50">
         <div>

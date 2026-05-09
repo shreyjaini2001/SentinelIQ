@@ -50,3 +50,9 @@ class RealSIEMProvider(DataProvider):
 
     def get_baselines(self) -> dict:
         self._not_ready("get_baselines")
+
+    def get_iam_graph(self) -> dict:
+        return {"groups": [], "roles": [], "service_principals": [], "privileged_access_paths": []}
+
+    def get_past_investigations(self) -> list[dict]:
+        return []

@@ -34,7 +34,7 @@ export function QueryPreviewCard({ result, onRun, onEdit }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 backdrop-blur overflow-hidden">
+    <div data-testid="query-preview-card" className="rounded-xl border border-gray-700/60 bg-gray-900/70 backdrop-blur overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700/50">
         <div className="flex items-center gap-2">

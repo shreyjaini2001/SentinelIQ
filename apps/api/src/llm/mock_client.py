@@ -333,6 +333,8 @@ def _detect_mode(text: str) -> dict:
         "executive summary", "executive report", "technical report",
         "regulatory report", "compliance report", "breach notification",
         "generate report", "create report", "draft a report",
+        "hunt for", "threat hunt", "threat hunting", "ttp hunt",
+        "build a timeline", "timeline for", "reconstruct timeline", "timeline reconstruction",
     }
 
     # Priority: refine > action (with hybrid-query guard) > query

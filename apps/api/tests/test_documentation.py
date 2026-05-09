@@ -1,7 +1,103 @@
 """Tests for Capability 5 — One-Click Documentation."""
+import json
 import pytest
 from httpx import AsyncClient, ASGITransport
 from src.capabilities.documentation import generate_documentation, DocumentationResult
+from src.handlers.documentation_handler import _pick_variant
+
+
+# ── _pick_variant unit tests ─────────────────────────────────────────────────
+
+def test_pick_variant_executive_summary():
+    assert _pick_variant("Generate an executive summary for this investigation") == "executive"
+
+def test_pick_variant_technical_report():
+    assert _pick_variant("Write a technical report") == "technical"
+
+def test_pick_variant_regulatory_report():
+    assert _pick_variant("Generate a regulatory report") == "regulatory"
+
+def test_pick_variant_board():
+    assert _pick_variant("Write a board-level briefing") == "executive"
+
+def test_pick_variant_hipaa():
+    assert _pick_variant("Create a HIPAA compliance report") == "regulatory"
+
+def test_pick_variant_default_technical():
+    assert _pick_variant("") == "technical"
+    assert _pick_variant("document this incident") == "technical"
+
+
+# ── Action endpoint variant routing tests ────────────────────────────────────
+
+def _parse_sse(text: str) -> list[dict]:
+    events = []
+    for block in text.strip().split("\n\n"):
+        lines = block.strip().splitlines()
+        event_type = "progress"
+        data_str = ""
+        for line in lines:
+            if line.startswith("event: "):
+                event_type = line[7:]
+            elif line.startswith("data: "):
+                data_str = line[6:]
+        if data_str:
+            try:
+                events.append({"type": event_type, **json.loads(data_str)})
+            except json.JSONDecodeError:
+                pass
+    return events
+
+
+@pytest.mark.asyncio
+async def test_action_documentation_executive_variant(client):
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+
+    resp = await client.post("/api/v1/action", json={
+        "text": "Generate an executive summary for this investigation",
+        "session_id": session_id,
+    })
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    assert len(result_events) == 1
+    assert result_events[0].get("handler") == "documentation"
+    assert result_events[0]["data"]["variant"] == "executive"
+
+
+@pytest.mark.asyncio
+async def test_action_documentation_technical_variant(client):
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+
+    resp = await client.post("/api/v1/action", json={
+        "text": "Write a technical report for this incident",
+        "session_id": session_id,
+    })
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    assert len(result_events) == 1
+    assert result_events[0].get("handler") == "documentation"
+    assert result_events[0]["data"]["variant"] == "technical"
+
+
+@pytest.mark.asyncio
+async def test_action_documentation_regulatory_variant(client):
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+
+    resp = await client.post("/api/v1/action", json={
+        "text": "Generate a regulatory report for this breach",
+        "session_id": session_id,
+    })
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    assert len(result_events) == 1
+    assert result_events[0].get("handler") == "documentation"
+    assert result_events[0]["data"]["variant"] == "regulatory"
 
 
 # ── Unit tests ────────────────────────────────────────────────────────────────

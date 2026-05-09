@@ -60,3 +60,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Playwright
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/.cache/
+.claude/settings.local.json

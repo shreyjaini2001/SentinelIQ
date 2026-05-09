@@ -46,3 +46,4 @@ class SessionContext(BaseModel):
     expires_at: datetime | None = None
     compressed_summary: str | None = None
     turn_count: int = 0
+    last_action_text: str | None = None

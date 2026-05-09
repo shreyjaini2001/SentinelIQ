@@ -39,7 +39,7 @@ export function RuleSuggestionPanel({ result }: Props) {
   const [showKql, setShowKql] = useState(true)
 
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
+    <div data-testid="rule-suggestion-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 bg-gray-900/50">
         <div className="flex items-center gap-3">
