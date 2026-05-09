@@ -10,6 +10,7 @@ router = APIRouter()
 @router.post("/action")
 async def dispatch_action(req: ActionRequest):
     ctx = await session_manager.get_or_create(req.session_id)
+    ctx.last_action_text = req.text
 
     async def event_stream():
         try:
