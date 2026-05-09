@@ -12,14 +12,20 @@ async def dispatch_action(req: ActionRequest):
     ctx = await session_manager.get_or_create(req.session_id)
 
     async def event_stream():
-        async for event in action_dispatcher.dispatch(
-            intent_label=req.text,
-            ctx=ctx,
-            confirmed_handler=req.confirmed_handler,
-        ):
-            event_type = event.get("type", "progress")
-            data = json.dumps({k: v for k, v in event.items() if k != "type"})
-            yield f"event: {event_type}\ndata: {data}\n\n"
+        try:
+            async for event in action_dispatcher.dispatch(
+                intent_label=req.text,
+                ctx=ctx,
+                confirmed_handler=req.confirmed_handler,
+            ):
+                event_type = event.get("type", "progress")
+                data = json.dumps({k: v for k, v in event.items() if k != "type"})
+                yield f"event: {event_type}\ndata: {data}\n\n"
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            error_data = json.dumps({"message": f"{type(exc).__name__}: {exc}", "traceback": tb})
+            yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(
         event_stream(),

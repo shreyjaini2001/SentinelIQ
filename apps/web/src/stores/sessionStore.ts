@@ -16,7 +16,7 @@ interface SessionState {
 
   setSessionId: (id: string) => void
   setMode: (mode: Mode) => void
-  setResult: (result: QueryResult) => void
+  setResult: (result: QueryResult | null) => void
   setChips: (chips: SuggestionChip[]) => void
   pushBreadcrumb: (entry: BreadcrumbEntry) => void
   setActionOutput: (output: string | null) => void

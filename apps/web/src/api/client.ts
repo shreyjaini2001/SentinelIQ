@@ -55,44 +55,60 @@ export async function getAutocomplete(q: string, sessionId?: string): Promise<{ 
 export function streamAction(
   text: string,
   sessionId: string,
-  confirmedHandler?: string,
-  onEvent?: (event: ActionProgressEvent) => void,
+  confirmedHandler: string | undefined,
+  onEvent: (event: ActionProgressEvent) => void,
+  onDone: () => void,
 ): () => void {
   let aborted = false
 
   const run = async () => {
-    const res = await fetch(`${BASE}/action`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, session_id: sessionId, confirmed_handler: confirmedHandler }),
-    })
-    if (!res.body) return
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+    try {
+      const res = await fetch(`${BASE}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, session_id: sessionId, confirmed_handler: confirmedHandler }),
+      })
+      if (!res.ok) {
+        onEvent({ type: 'error', message: `Server error ${res.status}` })
+        return
+      }
+      if (!res.body) {
+        onEvent({ type: 'error', message: 'No response body from server' })
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
 
-    while (!aborted) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const parts = buffer.split('\n\n')
-      buffer = parts.pop() ?? ''
-      for (const part of parts) {
-        const lines = part.trim().split('\n')
-        let eventType = 'progress'
-        let data = ''
-        for (const line of lines) {
-          if (line.startsWith('event: ')) eventType = line.slice(7)
-          if (line.startsWith('data: ')) data = line.slice(6)
-        }
-        if (data && onEvent) {
-          try {
-            onEvent({ type: eventType as ActionProgressEvent['type'], ...JSON.parse(data) })
-          } catch {}
+      while (!aborted) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const part of parts) {
+          const lines = part.trim().split('\n')
+          let eventType = 'progress'
+          let data = ''
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7)
+            if (line.startsWith('data: ')) data = line.slice(6)
+          }
+          if (data) {
+            try {
+              onEvent({ type: eventType as ActionProgressEvent['type'], ...JSON.parse(data) })
+            } catch {
+              // malformed SSE chunk — skip
+            }
+          }
         }
       }
+      reader.cancel()
+    } catch (err) {
+      onEvent({ type: 'error', message: err instanceof Error ? err.message : 'Network error' })
+    } finally {
+      onDone()
     }
-    reader.cancel()
   }
 
   run()

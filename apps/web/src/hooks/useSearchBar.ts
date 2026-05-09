@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDebounce } from './useDebounce'
 import { useSessionStore } from '../stores/sessionStore'
 import * as api from '../api/client'
-import type { ClassifyResult, ActionProgressEvent } from '../types'
+import type { ClassifyResult, ActionProgressEvent, Mode } from '../types'
 
 const PLACEHOLDER_CYCLE = [
   'Show me failed logins from unusual geolocations in the last 6 hours...',
@@ -19,6 +19,12 @@ export function useSearchBar() {
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [isExpanded, setIsExpanded] = useState(false)
   const abortActionRef = useRef<(() => void) | null>(null)
+  // Token guard: incremented on every new action submission.
+  // Callbacks from aborted/stale streams check this before updating state.
+  const actionTokenRef = useRef(0)
+  // Always-current ref to submit — used by pendingQuery effect so it doesn't
+  // need submit in its dependency array (which would clear the timer on text change).
+  const submitRef = useRef<(text?: string) => Promise<void>>(async () => {})
 
   const {
     sessionId,
@@ -40,7 +46,7 @@ export function useSearchBar() {
 
   const debouncedText = useDebounce(text, 300)
 
-  // Mode classification on debounced input
+  // Debounced classification — updates the mode pill while typing
   useEffect(() => {
     if (!debouncedText.trim() || !sessionId) {
       setClassification(null)
@@ -70,43 +76,90 @@ export function useSearchBar() {
   }, [text])
 
   const submit = useCallback(async (inputText?: string) => {
-    const submittedText = inputText ?? text
-    if (!submittedText.trim() || !sessionId) return
+    const submittedText = (inputText ?? text).trim()
+    if (!submittedText || !sessionId) return
 
-    const mode = classification?.mode ?? currentMode
+    // ── Step 1: Always re-classify the submitted text live.
+    // The debounce effect may not have settled (user typed fast or used a
+    // welcome-button). Using a stale classification would route action prompts
+    // to the query pipeline, producing KQL instead of the action panel.
+    let mode: Mode = 'query'
+    try {
+      const live = await api.classify(submittedText, sessionId)
+      setClassification(live)
+      setMode(live.mode)
+      mode = live.mode
+    } catch {
+      // Classify API down — fall back to last known classification
+      mode = classification?.mode ?? 'query'
+    }
 
     if (mode === 'action') {
-      // Stream action
+      // ── Step 2a: Clear stale query state so QueryPreviewCard disappears
+      setResult(null)
+      setChips([])
+
+      // ── Step 3: Start action stream
       setActionRunning(true)
       setActionOutput(null)
       setActionData(null)
       setActionProgress('Starting...')
+
+      // Abort any in-flight action from a previous submission
       if (abortActionRef.current) abortActionRef.current()
 
-      const outputParts: string[] = []
+      // Increment token — old stream callbacks will see a mismatch and exit
+      const token = ++actionTokenRef.current
+      let streamDone = false
+
       abortActionRef.current = api.streamAction(
         submittedText,
         sessionId,
         undefined,
         (event: ActionProgressEvent) => {
+          // Ignore callbacks from superseded streams
+          if (actionTokenRef.current !== token) return
+
           if (event.type === 'progress' && event.message) {
             setActionProgress(event.message)
-          } else if (event.type === 'result' && event.output) {
-            outputParts.push(event.output)
-            setActionOutput(outputParts.join(''))
-            if (event.handler && event.data) {
+          } else if (event.type === 'result') {
+            streamDone = true
+            const out = event.output ?? ''
+            // Set a non-empty sentinel if handler produced no text output so
+            // the QueryPreviewCard guard {currentResult && !actionOutput} stays false
+            setActionOutput(out || ' ')
+            if (event.handler && event.data !== undefined) {
               setActionData({ handler: event.handler, data: event.data })
             }
             setActionProgress(null)
             setActionRunning(false)
           } else if (event.type === 'error') {
+            streamDone = true
+            setActionProgress(`Error: ${event.message ?? 'Action failed — check API logs'}`)
+            setActionRunning(false)
+          } else if (event.type === 'disambiguation') {
+            streamDone = true
             setActionProgress(null)
             setActionRunning(false)
           }
         },
+        () => {
+          // onDone: stream closed (normal end, abort, or network failure).
+          // If no terminal event (result/error) was received, unblock the UI.
+          if (actionTokenRef.current !== token) return
+          if (!streamDone) {
+            setActionRunning(false)
+            setActionProgress(null)
+          }
+        },
       )
     } else {
-      // Query or refine
+      // ── Step 2b: Clear stale action state so old panels disappear
+      setActionData(null)
+      setActionOutput(null)
+      setActionProgress(null)
+
+      // ── Step 3: Run query or refine
       setLoading(true)
       try {
         const result = await api.query(
@@ -123,7 +176,6 @@ export function useSearchBar() {
           timestamp: new Date().toISOString(),
         })
 
-        // Async chip generation
         api.getSuggestions(sessionId).then((data) => {
           setChips(data.chips)
         }).catch(() => {})
@@ -133,16 +185,39 @@ export function useSearchBar() {
         setLoading(false)
       }
     }
-  }, [text, sessionId, classification, currentMode, setLoading, setResult, pushBreadcrumb, setChips, setActionRunning, setActionOutput, setActionData, setActionProgress])
+  }, [
+    text,
+    sessionId,
+    classification,
+    currentMode,
+    setMode,
+    setLoading,
+    setResult,
+    setChips,
+    pushBreadcrumb,
+    setActionRunning,
+    setActionOutput,
+    setActionData,
+    setActionProgress,
+  ])
 
-  // Consume pendingQuery set by external callers (e.g. welcome screen buttons)
+  // Keep submitRef always pointing to the latest submit function.
+  // This lets the pendingQuery effect call submit without listing it as a
+  // dependency (which would clear the timer every time text changes).
+  submitRef.current = submit
+
+  // Consume pendingQuery set by external callers (e.g. welcome screen buttons).
+  // No timer or cleanup: setPendingQuery(null) changes the dep and would cause
+  // the cleanup to fire, cancelling a setTimeout before it fires. Instead we
+  // fire submit synchronously (submitRef always points to the latest function).
   useEffect(() => {
     if (!pendingQuery || isLoading || isActionRunning) return
-    setText(pendingQuery)
+    const captured = pendingQuery
+    setText(captured)
     setPendingQuery(null)
-    const timer = setTimeout(() => submit(pendingQuery), 100)
-    return () => clearTimeout(timer)
-  }, [pendingQuery, isLoading, isActionRunning, setPendingQuery, submit])
+    void submitRef.current(captured)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingQuery, isLoading, isActionRunning, setPendingQuery])
 
   const confirmDisambiguation = useCallback((confirmedMode: string) => {
     if (classification) {

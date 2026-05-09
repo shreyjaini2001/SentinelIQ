@@ -28,7 +28,11 @@ export function SearchBar() {
   } = useSearchBar()
 
   const { currentResult, chips, breadcrumbs, actionOutput, actionData, actionProgress } = useSessionStore()
-  const hasDedicatedPanel = ['triage', 'hunt', 'timeline', 'blast_radius', 'documentation', 'comparative', 'rule_suggestion'].includes(actionData?.handler ?? '')
+  const hasDedicatedPanel = [
+    'triage', 'hunt', 'timeline',
+    'blast_radius', 'documentation', 'comparative', 'rule_suggestion',
+  ].includes(actionData?.handler ?? '')
+  const actionError = !actionData && !isActionRunning && actionProgress?.startsWith('Error:')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const { showAutocomplete, handleFocus, handleBlur } = useAutocomplete()
 
@@ -92,6 +96,7 @@ export function SearchBar() {
             )}
             disabled={isLoading || isActionRunning}
             aria-label="AI Search Bar"
+            data-session-id={sessionId ?? ''}
           />
           <AutocompleteDropdown
             inputValue={text}
@@ -103,6 +108,7 @@ export function SearchBar() {
 
         {/* Submit button */}
         <button
+          data-testid="submit-button"
           onClick={() => submit()}
           disabled={!text.trim() || isLoading || isActionRunning || !sessionId}
           className={clsx(
@@ -141,12 +147,19 @@ export function SearchBar() {
         )}
 
         {/* Action progress feed */}
-        {(isActionRunning || actionProgress) && (
+        {(isActionRunning || (actionProgress && !actionError)) && (
           <ProgressFeed message={actionProgress} isRunning={isActionRunning} />
         )}
 
-        {/* Query preview card */}
-        {currentResult && !actionOutput && (
+        {/* Action error card */}
+        {actionError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+            {actionProgress}
+          </div>
+        )}
+
+        {/* Query preview card — only when there is a query result and no action is in flight */}
+        {currentResult && !actionOutput && !isActionRunning && (
           <QueryPreviewCard
             result={currentResult}
             onRun={() => console.log('Execute:', currentResult.generated_query)}

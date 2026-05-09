@@ -69,3 +69,13 @@ class DataProvider(ABC):
     def get_baselines(self) -> dict:
         """Return historical baseline statistics."""
         ...
+
+    @abstractmethod
+    def get_iam_graph(self) -> dict:
+        """Return IAM graph with groups, roles, service_principals, privileged_access_paths."""
+        ...
+
+    @abstractmethod
+    def get_past_investigations(self) -> list[dict]:
+        """Return past investigation records for context and rule suggestion."""
+        ...

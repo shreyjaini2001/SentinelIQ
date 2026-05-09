@@ -19,7 +19,7 @@ export function HuntResultPanel({ result }: Props) {
   const withEvidence = result.technique_results.filter(t => t.evidence_level !== 'not_found')
 
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
+    <div data-testid="hunt-result-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 bg-gray-900/50">
         <div className="flex items-center gap-3">

@@ -16,7 +16,7 @@ export function DocumentationPanel({ result }: Props) {
   const variantCls = VARIANT_COLORS[result.variant] ?? 'text-gray-400 border-gray-600 bg-gray-700/20'
 
   return (
-    <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
+    <div data-testid="documentation-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 bg-gray-900/50">
         <div className="flex items-center gap-3">
