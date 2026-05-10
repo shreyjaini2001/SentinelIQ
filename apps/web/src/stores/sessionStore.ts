@@ -7,6 +7,7 @@ interface SessionState {
   currentResult: QueryResult | null
   chips: SuggestionChip[]
   breadcrumbs: BreadcrumbEntry[]
+  submitHistory: string[]           // all recent submitted prompts (query + action), deduped
   actionOutput: string | null
   actionData: ActionData | null
   actionProgress: string | null
@@ -19,6 +20,7 @@ interface SessionState {
   setResult: (result: QueryResult | null) => void
   setChips: (chips: SuggestionChip[]) => void
   pushBreadcrumb: (entry: BreadcrumbEntry) => void
+  pushSubmitHistory: (text: string) => void
   setActionOutput: (output: string | null) => void
   setActionData: (data: ActionData | null) => void
   setActionProgress: (progress: string | null) => void
@@ -34,6 +36,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   currentResult: null,
   chips: [],
   breadcrumbs: [],
+  submitHistory: [],
   actionOutput: null,
   actionData: null,
   actionProgress: null,
@@ -46,9 +49,19 @@ export const useSessionStore = create<SessionState>((set) => ({
   setResult: (result) => set({ currentResult: result }),
   setChips: (chips) => set({ chips }),
   pushBreadcrumb: (entry) =>
-    set((state) => ({
-      breadcrumbs: [entry, ...state.breadcrumbs].slice(0, 3),
-    })),
+    set((state) => {
+      // Skip if the most recent breadcrumb is identical text
+      if (state.breadcrumbs[0]?.original_text === entry.original_text) return state
+      return { breadcrumbs: [entry, ...state.breadcrumbs].slice(0, 5) }
+    }),
+  pushSubmitHistory: (text) =>
+    set((state) => {
+      const trimmed = text.trim()
+      if (!trimmed) return state
+      // Move to front (dedup) and cap at 20
+      const filtered = state.submitHistory.filter(h => h !== trimmed)
+      return { submitHistory: [trimmed, ...filtered].slice(0, 20) }
+    }),
   setActionOutput: (output) => set({ actionOutput: output }),
   setActionData: (data) => set({ actionData: data }),
   setActionProgress: (progress) => set({ actionProgress: progress }),
