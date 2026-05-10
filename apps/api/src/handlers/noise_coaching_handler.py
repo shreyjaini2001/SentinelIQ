@@ -38,26 +38,30 @@ class NoiseCoachingHandler(BaseHandler):
         )
         rule_hint = _extract_rule_hint(user_text)
 
-        yield {
-            "type": "progress",
-            "message": f"Analyzing false positive patterns{' for ' + rule_hint if rule_hint else ''}...",
-            "step": 1,
-            "total_steps": 4,
-        }
+        # Resolve "this rule" / "this alert" via session context
+        from_session = False
+        is_generic_fallback = False
 
-        yield {
-            "type": "progress",
-            "message": "Clustering false positive events by field patterns...",
-            "step": 2,
-            "total_steps": 4,
-        }
+        if not rule_hint:
+            if ctx.last_rule_hint:
+                rule_hint = ctx.last_rule_hint
+                from_session = True
+            else:
+                is_generic_fallback = True
 
-        yield {
-            "type": "progress",
-            "message": "Generating tuning recommendations and impact preview...",
-            "step": 3,
-            "total_steps": 4,
-        }
+        if from_session:
+            step1_msg = f"No rule in prompt — using last session rule ({rule_hint}) as context..."
+        elif is_generic_fallback:
+            step1_msg = (
+                "No specific rule identified in your prompt or session. "
+                "Analyzing the highest-noise rule in your environment as a starting point..."
+            )
+        else:
+            step1_msg = f"Analyzing false positive patterns for {rule_hint}..."
+
+        yield {"type": "progress", "message": step1_msg, "step": 1, "total_steps": 4}
+        yield {"type": "progress", "message": "Clustering false positive events by field patterns...", "step": 2, "total_steps": 4}
+        yield {"type": "progress", "message": "Generating tuning recommendations and impact preview...", "step": 3, "total_steps": 4}
 
         context_text = user_text
         if ctx.compressed_summary:
@@ -67,6 +71,21 @@ class NoiseCoachingHandler(BaseHandler):
             context_text=context_text,
             rule_name_hint=rule_hint,
         )
+
+        # Persist the resolved rule so "this rule" in the next prompt can find it
+        ctx.last_rule_hint = result.rule_name
+
+        # When no rule was identified, prepend a visible note to impact_preview
+        if is_generic_fallback:
+            fallback_note = (
+                f"No specific rule was identified in your prompt or session history. "
+                f"Showing analysis for {result.rule_name} — the highest-noise rule in your environment. "
+                f"To target a specific rule, mention its name (e.g. \"Why does GeoAnomalyLogin fire so often?\")."
+                "\n\n"
+            )
+            result = result.model_copy(
+                update={"impact_preview": fallback_note + result.impact_preview}
+            )
 
         yield {
             "type": "progress",

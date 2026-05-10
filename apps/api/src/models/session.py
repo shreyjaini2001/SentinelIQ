@@ -47,3 +47,4 @@ class SessionContext(BaseModel):
     compressed_summary: str | None = None
     turn_count: int = 0
     last_action_text: str | None = None
+    last_rule_hint: str | None = None  # last rule explicitly discussed; used as fallback for "this rule" prompts

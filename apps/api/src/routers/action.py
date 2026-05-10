@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from src.models.requests import ActionRequest
 from src.components import action_dispatcher, session_manager
+from src.storage import session_store
 
 router = APIRouter()
 
@@ -27,6 +28,9 @@ async def dispatch_action(req: ActionRequest):
             tb = traceback.format_exc()
             error_data = json.dumps({"message": f"{type(exc).__name__}: {exc}", "traceback": tb})
             yield f"event: error\ndata: {error_data}\n\n"
+        finally:
+            # Persist any session mutations made by handlers (e.g. last_rule_hint)
+            await session_store.update_session(ctx)
 
     return StreamingResponse(
         event_stream(),

@@ -2,6 +2,7 @@
 import json
 import pytest
 from src.capabilities.noise_coaching import analyze_noise, NoiseCoachingResult
+from src.models.session import SessionContext
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -229,3 +230,84 @@ async def test_noise_coaching_result_data_shape(client):
         "impact_preview", "rollback_notes", "duration_ms",
     }
     assert required_keys.issubset(data.keys())
+
+
+# ── Context-resolution and fallback tests ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_noise_coaching_explicit_rule_name(client):
+    """Explicit rule name in prompt → correct rule, no fallback note."""
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+    resp = await client.post("/api/v1/action", json={
+        "text": "Why does GeoAnomalyLogin fire so often?",
+        "session_id": session_id,
+    })
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    data = result_events[0]["data"]
+    assert data["rule_name"] == "GeoAnomalyLogin"
+    # No fallback note injected when rule is explicit
+    assert "No specific rule was identified" not in data["impact_preview"]
+
+
+@pytest.mark.asyncio
+async def test_noise_coaching_alias_rule_name(client):
+    """Alias rule name GeoAnomalyNewCountryLogin → resolves to GeoAnomalyLogin profile, no fallback note."""
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+    resp = await client.post("/api/v1/action", json={
+        "text": "What's causing all this noise from rule GeoAnomalyNewCountryLogin?",
+        "session_id": session_id,
+    })
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    data = result_events[0]["data"]
+    assert data["rule_name"] == "GeoAnomalyLogin"
+    assert "No specific rule was identified" not in data["impact_preview"]
+
+
+@pytest.mark.asyncio
+async def test_noise_coaching_this_rule_with_session_context(client):
+    """'this rule' after an explicit rule prompt → reuses the session's last_rule_hint."""
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+
+    # First action establishes GeoAnomalyLogin in session context
+    await client.post("/api/v1/action", json={
+        "text": "Why does GeoAnomalyLogin fire so often?",
+        "session_id": session_id,
+    })
+
+    # Second action uses "this rule" — should pick up GeoAnomalyLogin from session
+    resp = await client.post("/api/v1/action", json={
+        "text": "Why does this rule fire so often?",
+        "session_id": session_id,
+    })
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    assert len(result_events) == 1
+    data = result_events[0]["data"]
+    assert data["rule_name"] == "GeoAnomalyLogin"
+    assert "No specific rule was identified" not in data["impact_preview"]
+
+
+@pytest.mark.asyncio
+async def test_noise_coaching_this_rule_without_context(client):
+    """'this rule' on a fresh session → fallback note prepended to impact_preview."""
+    sess = await client.post("/api/v1/session?analyst_id=test_analyst")
+    session_id = sess.json()["session_id"]
+    resp = await client.post("/api/v1/action", json={
+        "text": "Why does this rule fire so often?",
+        "session_id": session_id,
+    })
+    events = _parse_sse(resp.text)
+    result_events = [e for e in events if e["type"] == "result"]
+    assert len(result_events) == 1
+    data = result_events[0]["data"]
+    # Panel should render (handler and data present)
+    assert result_events[0]["handler"] == "noise_coaching"
+    # A clear fallback note should be visible in impact_preview
+    assert "No specific rule was identified" in data["impact_preview"]
+    # The rule name shown should be the highest-noise fixture rule
+    assert data["rule_name"]  # not empty
