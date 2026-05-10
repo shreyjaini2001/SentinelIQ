@@ -335,6 +335,15 @@ def _detect_mode(text: str) -> dict:
         "generate report", "create report", "draft a report",
         "hunt for", "threat hunt", "threat hunting", "ttp hunt",
         "build a timeline", "timeline for", "reconstruct timeline", "timeline reconstruction",
+        # Phase 3 additions
+        "handoff", "hand off", "next analyst", "shift briefing", "end of shift",
+        "brief the next", "what should the next analyst",
+        "write a runbook", "write my runbook", "generate a runbook", "create a runbook",
+        "runbook for", "playbook for", "runbook based on",
+        "why does this rule fire", "why does this alert",
+        "too many false positives", "reduce noise", "alert fatigue",
+        "noise from rule", "noisy rule", "help me tune this",
+        "why is this alerting", "false positive rate",
     }
 
     # Priority: refine > action (with hybrid-query guard) > query
@@ -619,6 +628,56 @@ Incident Response Lead: Security Operations Center
 """
 
 
+def _handoff_context_mock(text: str) -> str:
+    return (
+        "The outgoing shift investigated a high-confidence account compromise on jsmith@corp.com, "
+        "traced to a Russian-geolocated login followed by credential dumping and lateral movement to SERVER-DC01. "
+        "The account has been suspended and incident INC-2026-0042 is escalated to Tier 2 with containment in progress. "
+        "Incoming analyst should confirm all privileged-account tokens have been revoked and verify no persistence "
+        "artifacts remain on DESKTOP-42 and FILE-SRV01. "
+        "Two medium-priority alerts (encoded PowerShell on DESKTOP-42, brute force from 203.0.113.42) remain open in the queue."
+    )
+
+
+def _runbook_narrative_mock(text: str) -> str:
+    text_lower = text.lower()
+    if "privilege" in text_lower or "escalation" in text_lower:
+        scenario = "privilege escalation"
+    elif "credential" in text_lower or "lsass" in text_lower:
+        scenario = "credential dumping"
+    elif "lateral" in text_lower or "smb" in text_lower:
+        scenario = "lateral movement"
+    elif "phish" in text_lower:
+        scenario = "phishing"
+    elif "ransomware" in text_lower:
+        scenario = "ransomware"
+    else:
+        scenario = "suspicious account activity"
+    return (
+        f"This runbook provides a structured response procedure for {scenario} alerts. "
+        f"Follow each step in sequence and document your actions in the incident ticket before proceeding. "
+        f"Escalate to Tier 2 if containment cannot be achieved within 45 minutes of initial detection."
+    )
+
+
+def _noise_coaching_mock(text: str) -> str:
+    text_lower = text.lower()
+    if "geoanomaly" in text_lower or "country" in text_lower or "geo" in text_lower:
+        rule, reduction, after_rate = "GeoAnomalyLogin", "~65%", "4%"
+    elif "powershell" in text_lower or "encoded" in text_lower:
+        rule, reduction, after_rate = "EncodedPowerShell", "~40%", "9%"
+    else:
+        rule, reduction, after_rate = "the identified rule", "~35%", "8%"
+    return (
+        f"Analysis of {rule} reveals that false positives cluster into three distinct patterns "
+        f"that can be eliminated without reducing true-positive coverage. "
+        f"Applying the IP-allowlist, user-travel-calendar exclusion, and OAuth relay exclusion "
+        f"is projected to reduce alert volume by {reduction}, dropping the FP rate from its current level to ~{after_rate}. "
+        f"All tuning changes are implemented as KQL condition additions and can be rolled back in under two minutes "
+        f"by reverting the affected WHERE clause — no rule recreation required."
+    )
+
+
 def _comparative_narrative_mock(text: str) -> str:
     text_lower = text.lower()
     entity = "jsmith@corp.com" if "jsmith" in text_lower else "the analyzed entity"
@@ -778,6 +837,12 @@ async def complete_mock(
         return _doc_regulatory_mock(user_msg)
     elif "comparative behavioral" in system.lower():
         return _comparative_narrative_mock(user_msg)
+    elif "shift handoff briefing" in system.lower():
+        return _handoff_context_mock(user_msg)
+    elif "runbook generation response" in system.lower():
+        return _runbook_narrative_mock(user_msg)
+    elif "noise reduction coaching" in system.lower():
+        return _noise_coaching_mock(user_msg)
     elif "summariz" in system.lower():
         return """## Investigation Summary
 

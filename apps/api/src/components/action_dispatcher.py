@@ -9,6 +9,9 @@ from src.handlers.blast_radius_handler import BlastRadiusHandler
 from src.handlers.documentation_handler import DocumentationHandler
 from src.handlers.comparative_handler import ComparativeHandler
 from src.handlers.rule_suggestion_handler import RuleSuggestionHandler
+from src.handlers.handoff_handler import HandoffHandler
+from src.handlers.runbook_handler import RunbookHandler
+from src.handlers.noise_coaching_handler import NoiseCoachingHandler
 from src.models.session import SessionContext
 
 _REGISTRY: list[BaseHandler] = [
@@ -20,6 +23,9 @@ _REGISTRY: list[BaseHandler] = [
     DocumentationHandler(),
     ComparativeHandler(),
     RuleSuggestionHandler(),
+    HandoffHandler(),
+    RunbookHandler(),
+    NoiseCoachingHandler(),
 ]
 
 _CONFIDENCE_THRESHOLD = 0.7

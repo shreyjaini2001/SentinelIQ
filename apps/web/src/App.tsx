@@ -6,10 +6,14 @@ import { BlastRadiusPanel } from './components/panels/BlastRadiusPanel'
 import { DocumentationPanel } from './components/panels/DocumentationPanel'
 import { ComparativeAnalysisPanel } from './components/panels/ComparativeAnalysisPanel'
 import { RuleSuggestionPanel } from './components/panels/RuleSuggestionPanel'
+import { HandoffBriefingPanel } from './components/panels/HandoffBriefingPanel'
+import { RunbookPanel } from './components/panels/RunbookPanel'
+import { NoiseCoachingPanel } from './components/panels/NoiseCoachingPanel'
 import { useSessionStore } from './stores/sessionStore'
 import type {
   TriageResult, HuntResult, TimelineResult,
   BlastRadiusResult, DocumentationResult, ComparativeResult, RuleSuggestionResult,
+  HandoffBriefingResult, RunbookResult, NoiseCoachingResult,
 } from './types'
 
 const EXAMPLE_PROMPTS = [
@@ -21,6 +25,9 @@ const EXAMPLE_PROMPTS = [
   'Compare jsmith behavior vs baseline',
   'Write a technical report',
   'Write a detection rule for this',
+  'Write my handoff summary',
+  'Generate a runbook for privilege escalation',
+  'Why does GeoAnomalyLogin fire so often?',
 ]
 
 function MainPanel() {
@@ -52,6 +59,18 @@ function MainPanel() {
 
   if (actionData?.handler === 'rule_suggestion') {
     return <RuleSuggestionPanel result={actionData.data as RuleSuggestionResult} />
+  }
+
+  if (actionData?.handler === 'handoff') {
+    return <HandoffBriefingPanel result={actionData.data as HandoffBriefingResult} />
+  }
+
+  if (actionData?.handler === 'runbook') {
+    return <RunbookPanel result={actionData.data as RunbookResult} />
+  }
+
+  if (actionData?.handler === 'noise_coaching') {
+    return <NoiseCoachingPanel result={actionData.data as NoiseCoachingResult} />
   }
 
   if (currentResult) {
@@ -97,7 +116,7 @@ export default function App() {
               <span className="text-white text-xs font-bold">S</span>
             </div>
             <span className="text-sm font-semibold text-white">SentinelIQ</span>
-            <span className="text-xs text-gray-500 ml-1">Phase 2</span>
+            <span className="text-xs text-gray-500 ml-1">Phase 3</span>
           </div>
 
           {/* Search bar — always visible, expands to fill */}
