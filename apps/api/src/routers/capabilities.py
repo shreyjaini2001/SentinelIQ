@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from src.capabilities import triage, threat_hunt, timeline
 from src.capabilities import blast_radius, documentation, comparative, rule_suggestion
+from src.capabilities import handoff, runbook, noise_coaching
 
 router = APIRouter()
 
@@ -120,3 +121,52 @@ async def suggest_rule(req: RuleSuggestionRequest):
     if not req.context_text.strip():
         raise HTTPException(status_code=400, detail="context_text is required")
     return await rule_suggestion.suggest_rule(req.context_text)
+
+
+# ── Shift Handoff Briefing (Capability 8) ────────────────────────────────────
+
+class HandoffRequest(BaseModel):
+    context_text: str = ""
+    shift_window: str = "last 8 hours"
+
+
+@router.post("/handoff", response_model=handoff.HandoffBriefingResult)
+async def generate_handoff(req: HandoffRequest):
+    return await handoff.generate_handoff(
+        context_text=req.context_text,
+        shift_window=req.shift_window,
+    )
+
+
+# ── Runbook Generation (Capability 9) ────────────────────────────────────────
+
+class RunbookRequest(BaseModel):
+    context_text: str
+    scenario_hint: str = ""
+
+
+@router.post("/runbook", response_model=runbook.RunbookResult)
+async def generate_runbook(req: RunbookRequest):
+    if not req.context_text.strip():
+        raise HTTPException(status_code=400, detail="context_text is required")
+    return await runbook.generate_runbook(
+        context_text=req.context_text,
+        scenario_hint=req.scenario_hint,
+    )
+
+
+# ── Noise Reduction Coaching (Capability 10) ─────────────────────────────────
+
+class NoiseCoachingRequest(BaseModel):
+    context_text: str
+    rule_name_hint: str = ""
+
+
+@router.post("/noise-coaching", response_model=noise_coaching.NoiseCoachingResult)
+async def analyze_noise(req: NoiseCoachingRequest):
+    if not req.context_text.strip():
+        raise HTTPException(status_code=400, detail="context_text is required")
+    return await noise_coaching.analyze_noise(
+        context_text=req.context_text,
+        rule_name_hint=req.rule_name_hint,
+    )

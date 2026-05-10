@@ -31,6 +31,7 @@ export function SearchBar() {
   const hasDedicatedPanel = [
     'triage', 'hunt', 'timeline',
     'blast_radius', 'documentation', 'comparative', 'rule_suggestion',
+    'handoff', 'runbook', 'noise_coaching',
   ].includes(actionData?.handler ?? '')
   const actionError = !actionData && !isActionRunning && actionProgress?.startsWith('Error:')
   const inputRef = useRef<HTMLTextAreaElement>(null)

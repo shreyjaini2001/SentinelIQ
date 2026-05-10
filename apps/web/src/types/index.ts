@@ -242,3 +242,87 @@ export interface RuleSuggestionResult {
   tuning_recommendations: string[]
   duration_ms: number
 }
+
+// ── Phase 3 types ─────────────────────────────────────────────────────────────
+
+export interface HandoffItem {
+  item_id: string
+  title: string
+  urgency: 'critical' | 'high' | 'medium' | 'low'
+  status: 'open' | 'closed' | 'in_progress'
+  entity_scope: string
+  notes: string
+  sla_deadline: string | null
+}
+
+export interface SLAIndicator {
+  category: string
+  target_minutes: number
+  current_minutes: number
+  status: 'on_track' | 'at_risk' | 'breached'
+}
+
+export interface HandoffBriefingResult {
+  briefing_id: string
+  shift_window: string
+  open_items: HandoffItem[]
+  closed_items: HandoffItem[]
+  key_context: string
+  watch_list: string[]
+  recommended_next_actions: string[]
+  sla_indicators: SLAIndicator[]
+  duration_ms: number
+}
+
+export interface RunbookStep {
+  step_number: number
+  action: string
+  role_owner: string
+  estimated_minutes: number
+  tools_commands: string[]
+  decision_branch: string | null
+}
+
+export interface RunbookResult {
+  runbook_id: string
+  title: string
+  alert_type: string
+  scenario: string
+  steps: RunbookStep[]
+  related_techniques: string[]
+  similar_incidents: string[]
+  estimated_total_minutes: number
+  narrative: string
+  duration_ms: number
+}
+
+export interface FPCluster {
+  cluster_id: string
+  description: string
+  alert_count: number
+  representative_fields: Record<string, string>
+}
+
+export interface TuningRecommendation {
+  recommendation_id: string
+  field_name: string
+  suggested_condition: string
+  estimated_reduction_pct: number
+  rationale: string
+}
+
+export interface NoiseCoachingResult {
+  coaching_id: string
+  rule_name: string
+  rule_description: string
+  current_fp_rate: number
+  fp_clusters: FPCluster[]
+  top_fp_fields: string[]
+  tuning_recommendations: TuningRecommendation[]
+  estimated_alert_reduction_pct: number
+  before_fp_rate: number
+  after_fp_rate: number
+  impact_preview: string
+  rollback_notes: string
+  duration_ms: number
+}
