@@ -27,7 +27,11 @@ export function SearchBar() {
     confirmDisambiguation,
   } = useSearchBar()
 
-  const { currentResult, chips, breadcrumbs, actionOutput, actionData, actionProgress } = useSessionStore()
+  const {
+    currentResult, chips, breadcrumbs, submitHistory,
+    actionOutput, actionData, actionProgress,
+    setResult, setChips, setLogsKql,
+  } = useSessionStore()
   const hasDedicatedPanel = [
     'triage', 'hunt', 'timeline',
     'blast_radius', 'documentation', 'comparative', 'rule_suggestion',
@@ -35,16 +39,27 @@ export function SearchBar() {
   ].includes(actionData?.handler ?? '')
   const actionError = !actionData && !isActionRunning && actionProgress?.startsWith('Error:')
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const { showAutocomplete, handleFocus, handleBlur } = useAutocomplete()
+  const { showAutocomplete, handleFocus, handleBlur, closeAutocomplete } = useAutocomplete()
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      closeAutocomplete()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      submit()
+      closeAutocomplete()
+      submit(text)
     }
   }
 
+  const handleSubmitClick = () => {
+    closeAutocomplete()
+    submit(text)
+  }
+
   const handleChipClick = (promptText: string) => {
+    closeAutocomplete()
     setText(promptText)
     inputRef.current?.focus()
     setTimeout(() => submit(promptText), 50)
@@ -55,12 +70,19 @@ export function SearchBar() {
     inputRef.current?.focus()
   }
 
+  // When the user selects from autocomplete: fill the bar and immediately submit
+  const handleAutocompleteSelect = (t: string) => {
+    closeAutocomplete()
+    setText(t)
+    submit(t)
+  }
+
   const showDisambiguation =
     classification?.disambiguation_chips &&
     classification.disambiguation_chips.length > 0
 
   return (
-    <div className="w-full z-50 relative">
+    <div className="w-full relative">
       {/* Main search bar */}
       <div
         className={clsx(
@@ -79,7 +101,7 @@ export function SearchBar() {
           />
         </div>
 
-        {/* Input */}
+        {/* Input — autocomplete is absolutely positioned relative to this div */}
         <div className="flex-1 relative">
           <textarea
             ref={inputRef}
@@ -103,14 +125,15 @@ export function SearchBar() {
             inputValue={text}
             sessionId={sessionId}
             visible={showAutocomplete}
-            onSelect={(t) => { setText(t); inputRef.current?.focus() }}
+            recentHistory={submitHistory}
+            onSelect={handleAutocompleteSelect}
           />
         </div>
 
         {/* Submit button */}
         <button
           data-testid="submit-button"
-          onClick={() => submit()}
+          onClick={handleSubmitClick}
           disabled={!text.trim() || isLoading || isActionRunning || !sessionId}
           className={clsx(
             'shrink-0 px-4 py-1.5 rounded-lg text-sm font-medium',
@@ -162,9 +185,10 @@ export function SearchBar() {
         {/* Query preview card — only when there is a query result and no action is in flight */}
         {currentResult && !actionOutput && !isActionRunning && (
           <QueryPreviewCard
+            key={currentResult.query_id}
             result={currentResult}
-            onRun={() => console.log('Execute:', currentResult.generated_query)}
-            onEdit={(q) => setText(q)}
+            onDismiss={() => { setResult(null); setChips([]) }}
+            onOpenInLogs={(kql) => { setLogsKql(kql); setResult(null); setChips([]) }}
           />
         )}
 

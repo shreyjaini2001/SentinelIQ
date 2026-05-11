@@ -33,6 +33,7 @@ export function useSearchBar() {
     setResult,
     setChips,
     pushBreadcrumb,
+    pushSubmitHistory,
     setLoading,
     setActionOutput,
     setActionData,
@@ -79,6 +80,9 @@ export function useSearchBar() {
     const submittedText = (inputText ?? text).trim()
     if (!submittedText || !sessionId) return
 
+    // Clear stale classification so the pill resets to neutral while live classify runs
+    setClassification(null)
+
     // ── Step 1: Always re-classify the submitted text live.
     // The debounce effect may not have settled (user typed fast or used a
     // welcome-button). Using a stale classification would route action prompts
@@ -95,6 +99,9 @@ export function useSearchBar() {
     }
 
     if (mode === 'action') {
+      // Record in submit history (covers action prompts which never push breadcrumbs)
+      pushSubmitHistory(submittedText)
+
       // ── Step 2a: Clear stale query state so QueryPreviewCard disappears
       setResult(null)
       setChips([])
@@ -168,6 +175,7 @@ export function useSearchBar() {
           mode === 'refine' ? 'refine' : 'query',
         )
         setResult(result)
+        pushSubmitHistory(submittedText)
         pushBreadcrumb({
           query_id: result.query_id,
           original_text: submittedText,
@@ -195,6 +203,7 @@ export function useSearchBar() {
     setResult,
     setChips,
     pushBreadcrumb,
+    pushSubmitHistory,
     setActionRunning,
     setActionOutput,
     setActionData,
