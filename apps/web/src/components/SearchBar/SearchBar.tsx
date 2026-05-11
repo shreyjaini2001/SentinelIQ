@@ -27,7 +27,11 @@ export function SearchBar() {
     confirmDisambiguation,
   } = useSearchBar()
 
-  const { currentResult, chips, breadcrumbs, submitHistory, actionOutput, actionData, actionProgress } = useSessionStore()
+  const {
+    currentResult, chips, breadcrumbs, submitHistory,
+    actionOutput, actionData, actionProgress,
+    setResult, setChips, setLogsKql,
+  } = useSessionStore()
   const hasDedicatedPanel = [
     'triage', 'hunt', 'timeline',
     'blast_radius', 'documentation', 'comparative', 'rule_suggestion',
@@ -181,9 +185,10 @@ export function SearchBar() {
         {/* Query preview card — only when there is a query result and no action is in flight */}
         {currentResult && !actionOutput && !isActionRunning && (
           <QueryPreviewCard
+            key={currentResult.query_id}
             result={currentResult}
-            onRun={() => console.log('Execute:', currentResult.generated_query)}
-            onEdit={(q) => setText(q)}
+            onDismiss={() => { setResult(null); setChips([]) }}
+            onOpenInLogs={(kql) => { setLogsKql(kql); setResult(null); setChips([]) }}
           />
         )}
 

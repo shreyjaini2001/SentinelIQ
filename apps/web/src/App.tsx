@@ -15,12 +15,24 @@ import { useSessionStore } from './stores/sessionStore'
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('overview')
-  const { actionData } = useSessionStore()
+  const { actionData, logsKql, setResult, setChips } = useSessionStore()
 
   // Auto-navigate to Overview when an AI action panel result arrives
   useEffect(() => {
     if (actionData) setCurrentPage('overview')
   }, [actionData])
+
+  // Auto-navigate to Logs when a query is sent there via "Open in Logs"
+  useEffect(() => {
+    if (logsKql) setCurrentPage('logs')
+  }, [logsKql])
+
+  // Navigating clears the transient QueryPreviewCard so it doesn't float over unrelated pages
+  const handleNavigate = (page: PageId) => {
+    setCurrentPage(page)
+    setResult(null)
+    setChips([])
+  }
 
   return (
     <div className="bg-sentinel-bg min-h-screen">
@@ -64,12 +76,12 @@ export default function App() {
 
         {/* Left navigation sidebar */}
         <aside className="w-52 shrink-0 border-r border-gray-800/60 bg-gray-950/40 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto self-start">
-          <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+          <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
         </aside>
 
         {/* Main content area */}
         <main className="flex-1 min-w-0 px-6 py-6">
-          {currentPage === 'overview'       && <OverviewPage onNavigate={setCurrentPage} />}
+          {currentPage === 'overview'       && <OverviewPage onNavigate={handleNavigate} />}
           {currentPage === 'alerts'         && <AlertsPage />}
           {currentPage === 'investigations' && <InvestigationsPage />}
           {currentPage === 'logs'           && <LogsPage />}

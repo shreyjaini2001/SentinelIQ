@@ -14,6 +14,7 @@ interface SessionState {
   isLoading: boolean
   isActionRunning: boolean
   pendingQuery: string | null
+  logsKql: string | null            // KQL to load into the Logs page editor
 
   setSessionId: (id: string) => void
   setMode: (mode: Mode) => void
@@ -27,6 +28,7 @@ interface SessionState {
   setLoading: (loading: boolean) => void
   setActionRunning: (running: boolean) => void
   setPendingQuery: (text: string | null) => void
+  setLogsKql: (kql: string | null) => void
   clear: () => void
 }
 
@@ -43,6 +45,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   isLoading: false,
   isActionRunning: false,
   pendingQuery: null,
+  logsKql: null,
 
   setSessionId: (id) => set({ sessionId: id }),
   setMode: (mode) => set({ currentMode: mode }),
@@ -66,6 +69,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setActionData: (data) => set({ actionData: data }),
   setActionProgress: (progress) => set({ actionProgress: progress }),
   setPendingQuery: (text) => set({ pendingQuery: text }),
+  setLogsKql: (kql) => set({ logsKql: kql }),
   setLoading: (loading) => set({ isLoading: loading }),
   setActionRunning: (running) => set({ isActionRunning: running }),
   clear: () =>

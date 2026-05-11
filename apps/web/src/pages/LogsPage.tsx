@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
+import { generateMockResults } from '../utils/mockResults'
+import type { MockQueryResult } from '../utils/mockResults'
 
-const EXAMPLE_QUERIES = [
+const AI_PROMPTS = [
   'Show me failed logins last 6 hours',
   'Lateral movement events this week',
   'Find outbound connections over 100MB',
@@ -16,9 +18,29 @@ const EXAMPLE_KQL = `SigninLogs
 | order by TimeGenerated desc`
 
 export function LogsPage() {
-  const { setPendingQuery } = useSessionStore()
+  const { setPendingQuery, logsKql, setLogsKql } = useSessionStore()
   const [kql, setKql] = useState('')
-  const [showExample, setShowExample] = useState(false)
+  const [results, setResults] = useState<MockQueryResult | null>(null)
+
+  // Consume KQL sent from QueryPreviewCard "Open in Logs"
+  useEffect(() => {
+    if (logsKql) {
+      setKql(logsKql)
+      setResults(null)   // clear old results when new KQL loads
+      setLogsKql(null)   // consume the value so it doesn't re-trigger
+    }
+  }, [logsKql, setLogsKql])
+
+  const handleRun = () => {
+    if (kql.trim()) {
+      setResults(generateMockResults(kql))
+    }
+  }
+
+  const handleClear = () => {
+    setKql('')
+    setResults(null)
+  }
 
   return (
     <div className="space-y-5">
@@ -30,13 +52,13 @@ export function LogsPage() {
         </div>
       </div>
 
-      {/* Quick AI prompts */}
+      {/* AI prompt chips — generate KQL via global AI bar */}
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Generate KQL with AI</span>
+        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
+          Generate KQL with AI
         </div>
         <div className="flex flex-wrap gap-2">
-          {EXAMPLE_QUERIES.map((q) => (
+          {AI_PROMPTS.map((q) => (
             <button
               key={q}
               onClick={() => setPendingQuery(q)}
@@ -46,40 +68,46 @@ export function LogsPage() {
             </button>
           ))}
         </div>
+        <p className="text-[10px] text-gray-600 mt-2">
+          AI-generated KQL will appear in the command bar above. Use "Open in Logs" from the result card to load it here.
+        </p>
       </div>
 
       {/* KQL editor */}
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800/60">
           <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">KQL Editor</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => { setKql(EXAMPLE_KQL); setShowExample(true) }}
+              onClick={() => { setKql(EXAMPLE_KQL); setResults(null) }}
               className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
             >
               Load example
             </button>
             <button
-              onClick={() => setKql('')}
+              onClick={handleClear}
               className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
             >
               Clear
             </button>
           </div>
         </div>
+
         <textarea
           value={kql}
-          onChange={(e) => setKql(e.target.value)}
+          onChange={(e) => { setKql(e.target.value); setResults(null) }}
           placeholder="Enter KQL query here, or use AI to generate one above..."
           rows={8}
           className="w-full bg-transparent text-gray-200 placeholder-gray-700 px-4 py-3 text-xs font-mono resize-none outline-none leading-relaxed"
           spellCheck={false}
         />
+
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-800/60">
           <span className="text-[10px] text-gray-600">
             {kql.trim() ? `${kql.split('\n').length} lines` : 'Empty'}
           </span>
           <button
+            onClick={handleRun}
             disabled={!kql.trim()}
             className="px-3 py-1.5 rounded-lg bg-blue-600/80 text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors"
           >
@@ -88,39 +116,42 @@ export function LogsPage() {
         </div>
       </div>
 
-      {showExample && (
-        <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Query Results</span>
-            <span className="text-[10px] text-gray-600">Mock · 12 rows</span>
+      {/* Query results */}
+      {results && (
+        <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800/60">
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Results</span>
+            <span className="text-[10px] text-gray-600">Mock · {results.rows.length} rows</span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto px-4 py-3">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-gray-800/60">
-                  {['TimeGenerated', 'UserPrincipalName', 'IPAddress', 'Location', 'ResultDescription'].map((h) => (
-                    <th key={h} className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider pb-2 pr-4 whitespace-nowrap">{h}</th>
+                  {results.columns.map((col) => (
+                    <th key={col} className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider pb-2 pr-4 whitespace-nowrap">
+                      {col}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="text-gray-400">
-                {[
-                  ['2026-05-10 08:23', 'jsmith@corp.com',   '185.220.101.5', 'RU / Moscow',    'Invalid credentials'],
-                  ['2026-05-10 08:21', 'jsmith@corp.com',   '185.220.101.5', 'RU / Moscow',    'Invalid credentials'],
-                  ['2026-05-10 08:19', 'jsmith@corp.com',   '185.220.101.5', 'RU / Moscow',    'Account locked out'],
-                  ['2026-05-10 07:58', 'mwatson@corp.com',  '194.165.16.3',  'NG / Lagos',     'MFA required'],
-                  ['2026-05-10 05:30', 'svc-backup-new',    '10.0.2.15',     'US / Virginia',  'Invalid credentials'],
-                ].map((row, i) => (
+                {results.rows.map((row, i) => (
                   <tr key={i} className="border-b border-gray-800/25 hover:bg-gray-800/20 transition-colors">
                     {row.map((cell, j) => (
-                      <td key={j} className="py-2 pr-4 font-mono whitespace-nowrap">{cell}</td>
+                      <td key={j} className="py-2 pr-4 font-mono whitespace-nowrap max-w-[260px] truncate">
+                        {cell}
+                      </td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-[10px] text-gray-600 mt-3">Mock result · 5 of 12 rows shown</p>
+          <div className="px-4 py-2 border-t border-gray-800/60">
+            <span className="text-[10px] text-gray-600">
+              Mock result · {results.rows.length} of {results.rows.length} rows · Fixture data
+            </span>
+          </div>
         </div>
       )}
     </div>
