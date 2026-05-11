@@ -3,7 +3,10 @@ import { ConfidenceBadge } from './ConfidenceBadge'
 import type { QueryResult } from '../../types'
 import { generateMockResults } from '../../utils/mockResults'
 import type { MockQueryResult } from '../../utils/mockResults'
+import { QueryResultTable } from '../query/QueryResultTable'
+import { EntityChips } from '../query/EntityChips'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { useSessionStore } from '../../stores/sessionStore'
 
 // Reset global-flag regexes per call by recreating them
 function highlightKql(kql: string): string {
@@ -24,14 +27,44 @@ interface Props {
 
 export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   const [explanationOpen, setExplanationOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editedKql, setEditedKql] = useState(result.generated_query)
-  const [runResults, setRunResults] = useState<MockQueryResult | null>(null)
-  const { activeInvestigationId, addArtifact } = useInvestigationStore()
+  const [copied, setCopied]             = useState(false)
+  const [saved, setSaved]               = useState(false)
+  const [savedResult, setSavedResult]   = useState(false)
+  const [isEditing, setIsEditing]       = useState(false)
+  const [editedKql, setEditedKql]       = useState(result.generated_query)
+  // committedKql tracks the last KQL that was actually Run — survives isEditing=false
+  const [committedKql, setCommittedKql] = useState(result.generated_query)
+  const [runResults, setRunResults]     = useState<MockQueryResult | null>(null)
 
-  const activeKql = isEditing ? editedKql : result.generated_query
+  const { activeInvestigationId, addArtifact } = useInvestigationStore()
+  const { setPendingQuery } = useSessionStore()
+
+  // activeKql: what the card currently represents
+  const activeKql = isEditing ? editedKql : committedKql
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(activeKql)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleRun = () => {
+    const kqlToRun = isEditing ? editedKql : committedKql
+    setIsEditing(false)
+    setCommittedKql(kqlToRun)   // commit so Open in Logs and Save to Case use this KQL
+    setRunResults(generateMockResults(kqlToRun))
+    setSavedResult(false)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditedKql(committedKql)  // restore to committed, not necessarily original
+  }
+
+  const handleOpenInLogs = () => {
+    // Always passes the committed/active KQL — preserves edited version after Run Edited
+    onOpenInLogs?.(activeKql)
+  }
 
   const handleSave = () => {
     addArtifact({
@@ -43,24 +76,19 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(activeKql)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const handleSaveResult = () => {
+    if (!runResults) return
+    addArtifact({
+      type: 'query_result',
+      title: `Query Result: ${result.explanation.summary.slice(0, 50)}`,
+      data: { ...runResults, kql: committedKql },
+    })
+    setSavedResult(true)
+    setTimeout(() => setSavedResult(false), 2000)
   }
 
-  const handleRun = () => {
-    setIsEditing(false)
-    setRunResults(generateMockResults(activeKql))
-  }
-
-  const handleCancelEdit = () => {
-    setIsEditing(false)
-    setEditedKql(result.generated_query)
-  }
-
-  const handleOpenInLogs = () => {
-    onOpenInLogs?.(activeKql)
+  const handleEntityClick = (entity: { value: string }) => {
+    setPendingQuery(`Show me all activity for ${entity.value} in the last 24 hours`)
   }
 
   const btnBase = 'text-xs text-gray-400 hover:text-gray-200 transition-colors px-2 py-1 rounded hover:bg-gray-700/60'
@@ -130,52 +158,42 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
             spellCheck={false}
             autoFocus
           />
-          <p className="text-[10px] text-gray-600 mt-1.5">Edit inline · click Run Edited to execute · Cancel to restore original</p>
+          <p className="text-[10px] text-gray-600 mt-1.5">Edit inline · click Run Edited to execute · Cancel to restore</p>
         </div>
       ) : (
         <div className="px-4 py-3 overflow-x-auto">
           <pre
             className="text-sm font-mono text-gray-200 whitespace-pre leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: highlightKql(result.generated_query) }}
+            dangerouslySetInnerHTML={{ __html: highlightKql(committedKql) }}
           />
         </div>
       )}
 
-      {/* Mock run results */}
+      {/* Run results */}
       {runResults && (
-        <div className="border-t border-gray-700/50 px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
+        <div className="border-t border-gray-700/50 px-4 py-3 space-y-4">
+          <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Results</span>
-            <span className="text-[10px] text-gray-600">Mock · {runResults.rows.length} rows</span>
+            {activeInvestigationId && (
+              <button
+                onClick={handleSaveResult}
+                className="text-[10px] text-gray-500 hover:text-blue-300 transition-colors"
+              >
+                {savedResult ? 'Saved ✓' : 'Save Result to Case'}
+              </button>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700/40">
-                  {runResults.columns.map((col) => (
-                    <th key={col} className="text-left text-[10px] font-semibold text-gray-500 pb-1.5 pr-4 whitespace-nowrap">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {runResults.rows.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors">
-                    {row.map((cell, j) => (
-                      <td key={j} className="py-1.5 pr-4 text-[11px] text-gray-400 font-mono max-w-[200px] truncate">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+          <QueryResultTable result={runResults} maxRows={5} />
+
+          {runResults.extractedEntities.length > 0 && (
+            <EntityChips entities={runResults.extractedEntities} onEntityClick={handleEntityClick} />
+          )}
+
           {onOpenInLogs && (
             <button
               onClick={handleOpenInLogs}
-              className="mt-2.5 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
             >
               Open in Logs for further analysis →
             </button>
