@@ -1,8 +1,53 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDebounce } from './useDebounce'
 import { useSessionStore } from '../stores/sessionStore'
+import { useInvestigationStore } from '../stores/investigationStore'
 import * as api from '../api/client'
 import type { ClassifyResult, ActionProgressEvent, Mode } from '../types'
+import type { ArtifactType } from '../types/investigation'
+
+const HANDLER_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
+  triage:     'alert_triage',
+  hunt:       'hunt',
+  timeline:   'timeline',
+  blast_radius: 'blast_radius',
+  comparative: 'comparative_analysis',
+  rule_suggestion: 'rule_suggestion',
+  documentation: 'documentation',
+  handoff:    'handoff',
+  runbook:    'runbook',
+  noise_coaching: 'noise_coaching',
+}
+
+function buildArtifactTitle(handler: string, data: unknown, submittedText: string): string {
+  if (!data || typeof data !== 'object') return `${handler}: ${submittedText.slice(0, 60)}`
+  const d = data as Record<string, unknown>
+  switch (handler) {
+    case 'documentation':  return String(d.title ?? submittedText.slice(0, 60))
+    case 'handoff':        return `Handoff Briefing — ${String(d.shift_window ?? 'Current Shift')}`
+    case 'runbook':        return `Runbook — ${String(d.title ?? submittedText.slice(0, 40))}`
+    case 'noise_coaching': return `Noise Coaching — ${String(d.rule_name ?? submittedText.slice(0, 40))}`
+    default:               return `${handler}: ${submittedText.slice(0, 60)}`
+  }
+}
+
+function buildResultSummary(handler: string, data: unknown): string {
+  if (!data || typeof data !== 'object') return handler
+  const d = data as Record<string, unknown>
+  switch (handler) {
+    case 'triage':          return `Triage: ${d.likely_tp ?? '?'} TP, ${d.likely_fp ?? '?'} FP of ${d.total_alerts ?? '?'}`
+    case 'hunt':            return `Hunt: ${d.techniques_with_evidence ?? '?'}/${d.techniques_queried ?? '?'} techniques with evidence`
+    case 'timeline':        return `Timeline: ${d.total_events ?? '?'} events`
+    case 'blast_radius':    return `Blast radius: ${d.total_reachable_assets ?? '?'} assets, risk ${d.risk_score ?? '?'}/10`
+    case 'comparative':     return `Comparative: deviation score ${d.overall_deviation_score ?? '?'}`
+    case 'rule_suggestion': return `Rule: ${String(d.rule_name ?? 'suggestion generated')}`
+    case 'documentation':   return `Report: ${String(d.variant ?? '')} — ${String(d.title ?? '')}`
+    case 'handoff':         return `Handoff: ${Array.isArray(d.open_items) ? d.open_items.length : '?'} open items`
+    case 'runbook':         return `Runbook: ${String(d.title ?? 'generated')}`
+    case 'noise_coaching':  return `Noise coaching: ${d.estimated_alert_reduction_pct ?? '?'}% alert reduction`
+    default:                return handler
+  }
+}
 
 const PLACEHOLDER_CYCLE = [
   'Show me failed logins from unusual geolocations in the last 6 hours...',
@@ -137,6 +182,23 @@ export function useSearchBar() {
             setActionOutput(out || ' ')
             if (event.handler && event.data !== undefined) {
               setActionData({ handler: event.handler, data: event.data })
+
+              // Record turn + artifact in active investigation (if any)
+              const invStore = useInvestigationStore.getState()
+              if (invStore.activeInvestigationId) {
+                const artifactType = HANDLER_TO_ARTIFACT_TYPE[event.handler] ?? 'documentation'
+                const artifactId = invStore.addArtifact({
+                  type: artifactType,
+                  title: buildArtifactTitle(event.handler, event.data, submittedText),
+                  data: event.data,
+                })
+                invStore.addTurn({
+                  user_text: submittedText,
+                  mode: 'action',
+                  result_summary: buildResultSummary(event.handler, event.data),
+                  artifact_ids: artifactId ? [artifactId] : [],
+                })
+              }
             }
             setActionProgress(null)
             setActionRunning(false)
@@ -183,6 +245,22 @@ export function useSearchBar() {
           confidence: result.confidence,
           timestamp: new Date().toISOString(),
         })
+
+        // Record turn + artifact in active investigation (if any)
+        const invStore = useInvestigationStore.getState()
+        if (invStore.activeInvestigationId) {
+          const artifactId = invStore.addArtifact({
+            type: 'query',
+            title: `Query: ${submittedText.slice(0, 60)}`,
+            data: { kql: result.generated_query, query_id: result.query_id },
+          })
+          invStore.addTurn({
+            user_text: submittedText,
+            mode: mode === 'refine' ? 'refine' : 'query',
+            result_summary: `KQL: ${result.generated_query.split('\n')[0]}`,
+            artifact_ids: artifactId ? [artifactId] : [],
+          })
+        }
 
         api.getSuggestions(sessionId).then((data) => {
           setChips(data.chips)

@@ -3,6 +3,7 @@ import { ConfidenceBadge } from './ConfidenceBadge'
 import type { QueryResult } from '../../types'
 import { generateMockResults } from '../../utils/mockResults'
 import type { MockQueryResult } from '../../utils/mockResults'
+import { useInvestigationStore } from '../../stores/investigationStore'
 
 // Reset global-flag regexes per call by recreating them
 function highlightKql(kql: string): string {
@@ -24,11 +25,23 @@ interface Props {
 export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   const [explanationOpen, setExplanationOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editedKql, setEditedKql] = useState(result.generated_query)
   const [runResults, setRunResults] = useState<MockQueryResult | null>(null)
+  const { activeInvestigationId, addArtifact } = useInvestigationStore()
 
   const activeKql = isEditing ? editedKql : result.generated_query
+
+  const handleSave = () => {
+    addArtifact({
+      type: 'query',
+      title: `Query: ${result.explanation.summary.slice(0, 60)}`,
+      data: { kql: activeKql, query_id: result.query_id },
+    })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(activeKql)
@@ -81,6 +94,12 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
           >
             {isEditing ? 'Run Edited' : 'Run'}
           </button>
+
+          {activeInvestigationId && (
+            <button onClick={handleSave} className={btnBase}>
+              {saved ? 'Saved!' : 'Save to Case'}
+            </button>
+          )}
 
           {onOpenInLogs && (
             <button onClick={handleOpenInLogs} className={btnBase}>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { DocumentationResult } from '../../types'
+import { useInvestigationStore } from '../../stores/investigationStore'
 
 interface Props {
   result: DocumentationResult
@@ -14,6 +15,11 @@ const VARIANT_CONFIG: Record<string, { color: string; accent: string; dot: strin
 export function DocumentationPanel({ result }: Props) {
   const [activeSection, setActiveSection] = useState<number | null>(null)
   const cfg = VARIANT_CONFIG[result.variant] ?? VARIANT_CONFIG.technical
+  const { investigations, activeInvestigationId } = useInvestigationStore()
+  const activeInv = investigations.find((i) => i.id === activeInvestigationId)
+  const contextMeta = activeInv
+    ? `${activeInv.turns.length} turns · ${activeInv.artifacts.length} artifacts · ${activeInv.pinned_findings.length} pinned findings · ${activeInv.notes.length} notes`
+    : null
 
   return (
     <div data-testid="documentation-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
@@ -40,6 +46,9 @@ export function DocumentationPanel({ result }: Props) {
             <span className="text-gray-700">·</span>
             <span>{result.sections.length} sections</span>
           </div>
+          {contextMeta && (
+            <p className="text-[10px] text-gray-600 mt-1.5">Context used: {contextMeta}</p>
+          )}
         </div>
 
         {/* Section navigation tabs */}

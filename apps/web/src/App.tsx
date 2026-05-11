@@ -4,6 +4,7 @@ import { Sidebar, type PageId } from './components/AppShell/Sidebar'
 import { OverviewPage } from './pages/OverviewPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { InvestigationsPage } from './pages/InvestigationsPage'
+import { InvestigationWorkspacePage } from './pages/InvestigationWorkspacePage'
 import { LogsPage } from './pages/LogsPage'
 import { HuntsPage } from './pages/HuntsPage'
 import { RulesPage } from './pages/RulesPage'
@@ -48,7 +49,7 @@ export default function App() {
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v0.5.0</span>
+              <span className="text-[10px] text-gray-600 font-mono">v0.6.0</span>
             </div>
           </div>
 
@@ -81,16 +82,17 @@ export default function App() {
 
         {/* Main content area */}
         <main className="flex-1 min-w-0 px-6 py-6">
-          {currentPage === 'overview'       && <OverviewPage onNavigate={handleNavigate} />}
-          {currentPage === 'alerts'         && <AlertsPage />}
-          {currentPage === 'investigations' && <InvestigationsPage />}
-          {currentPage === 'logs'           && <LogsPage />}
-          {currentPage === 'hunts'          && <HuntsPage />}
-          {currentPage === 'rules'          && <RulesPage />}
-          {currentPage === 'reports'        && <ReportsPage />}
-          {currentPage === 'assets'         && <AssetsPage />}
-          {currentPage === 'data-sources'   && <DataSourcesPage />}
-          {currentPage === 'settings'       && <SettingsPage />}
+          {currentPage === 'overview'                && <OverviewPage onNavigate={handleNavigate} />}
+          {currentPage === 'alerts'                  && <AlertsPage />}
+          {currentPage === 'investigations'          && <InvestigationsPage onNavigate={handleNavigate} />}
+          {currentPage === 'investigation-workspace' && <InvestigationWorkspacePage onBack={() => handleNavigate('investigations')} />}
+          {currentPage === 'logs'                    && <LogsPage />}
+          {currentPage === 'hunts'                   && <HuntsPage />}
+          {currentPage === 'rules'                   && <RulesPage />}
+          {currentPage === 'reports'                 && <ReportsPage />}
+          {currentPage === 'assets'                  && <AssetsPage />}
+          {currentPage === 'data-sources'            && <DataSourcesPage />}
+          {currentPage === 'settings'                && <SettingsPage />}
         </main>
 
       </div>
