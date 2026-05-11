@@ -80,6 +80,9 @@ export function useSearchBar() {
     const submittedText = (inputText ?? text).trim()
     if (!submittedText || !sessionId) return
 
+    // Clear stale classification so the pill resets to neutral while live classify runs
+    setClassification(null)
+
     // ── Step 1: Always re-classify the submitted text live.
     // The debounce effect may not have settled (user typed fast or used a
     // welcome-button). Using a stale classification would route action prompts

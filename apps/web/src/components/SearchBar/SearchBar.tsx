@@ -45,13 +45,13 @@ export function SearchBar() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       closeAutocomplete()
-      submit()
+      submit(text)
     }
   }
 
   const handleSubmitClick = () => {
     closeAutocomplete()
-    submit()
+    submit(text)
   }
 
   const handleChipClick = (promptText: string) => {
@@ -70,8 +70,7 @@ export function SearchBar() {
   const handleAutocompleteSelect = (t: string) => {
     closeAutocomplete()
     setText(t)
-    // Short delay so setText re-render completes before submit reads it
-    setTimeout(() => submit(t), 30)
+    submit(t)
   }
 
   const showDisambiguation =
