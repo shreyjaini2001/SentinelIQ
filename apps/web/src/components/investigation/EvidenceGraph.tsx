@@ -4,6 +4,7 @@ import type { Investigation } from '../../types/investigation'
 import type { EvidenceNode, EvidenceRelationship, InvestigationGap } from '../../types/evidence'
 import { deriveEvidence } from '../../utils/evidenceGraph'
 import { submitCommand } from '../../utils/commandRunner'
+import { useInvestigationStore } from '../../stores/investigationStore'
 
 const NODE_COLOR: Record<string, string> = {
   user:    'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
@@ -29,33 +30,60 @@ const NODE_ICON: Record<string, string> = {
   entity:  '◻',
 }
 
+const PROV_BADGE: Record<string, string> = {
+  query_result:  'text-blue-400 bg-blue-500/10 border-blue-500/30',
+  pinned_finding:'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  note:          'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
+  artifact_title:'text-gray-400 bg-gray-500/10 border-gray-500/30',
+}
+
+const PROV_LABEL: Record<string, string> = {
+  query_result:   'derived/query_result',
+  pinned_finding: 'analyst/finding',
+  note:           'analyst/note',
+  artifact_title: 'derived/title',
+}
+
 function nodeLabel(node: EvidenceNode): string {
   return node.value.length > 28 ? node.value.slice(0, 27) + '…' : node.value
 }
+
+function fmtTs(iso: string) {
+  return iso.replace('T', ' ').slice(0, 16)
+}
+
+// ── Quick actions per entity type ──────────────────────────────────────────
 
 function quickActionsForNode(node: EvidenceNode): { label: string; prompt: string }[] {
   const v = node.value
   switch (node.type) {
     case 'user':
       return [
-        { label: 'Recent activity', prompt: `What did ${v} do in the last 24 hours?` },
-        { label: 'Failed logins', prompt: `Show failed logins for ${v}` },
-        { label: 'Blast radius', prompt: `What is the blast radius for ${v}?` },
+        { label: 'Recent activity',   prompt: `What did ${v} do in the last 24 hours?` },
+        { label: 'Failed logins',     prompt: `Show failed logins for ${v}` },
+        { label: 'Blast radius',      prompt: `What is the blast radius for ${v}?` },
+        { label: 'Summarize evidence',prompt: `Summarize evidence for ${v}` },
       ]
     case 'host':
       return [
-        { label: 'Process activity', prompt: `Show process execution on ${v}` },
+        { label: 'Process activity',    prompt: `Show process execution on ${v}` },
         { label: 'Network connections', prompt: `Show outbound connections from ${v}` },
-        { label: 'Logon events', prompt: `Who logged into ${v} in the last 24 hours?` },
+        { label: 'Logon events',        prompt: `Who logged into ${v} in the last 24 hours?` },
+        { label: 'Hunt related TTPs',   prompt: `Hunt for suspicious activity on ${v}` },
       ]
     case 'ip':
       return [
-        { label: 'Network traffic', prompt: `Show network events for ${v}` },
+        { label: 'Network traffic',  prompt: `Show network events for ${v}` },
         { label: 'Connections from', prompt: `Which hosts connected to ${v}?` },
       ]
     case 'country':
       return [
         { label: 'Sign-ins from', prompt: `Show sign-ins from ${v}` },
+      ]
+    case 'process':
+      return [
+        { label: 'Process history', prompt: `Show all executions of ${v} in the last 24 hours` },
+        { label: 'Hunt TTPs',       prompt: `Hunt for TTPs related to ${v}` },
       ]
     default:
       return [
@@ -64,31 +92,206 @@ function quickActionsForNode(node: EvidenceNode): { label: string; prompt: strin
   }
 }
 
+// ── Relationship row (expandable) ─────────────────────────────────────────
+
+function RelationshipRow({
+  rel,
+  nodes,
+  isExpanded,
+  onToggle,
+}: {
+  rel: EvidenceRelationship
+  nodes: EvidenceNode[]
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  const from = nodes.find((n) => n.id === rel.fromNodeId)
+  const to   = nodes.find((n) => n.id === rel.toNodeId)
+  if (!from || !to || from.id === to.id) return null
+
+  const sourceLabel =
+    rel.provenanceType === 'query_result'
+      ? `Query Result${rel.sourceTable ? ` — ${rel.sourceTable}` : ''}`
+      : rel.provenanceType === 'pinned_finding'
+      ? 'Pinned Finding'
+      : rel.provenanceType === 'note'
+      ? 'Analyst Note'
+      : 'Artifact'
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-gray-800/50">
+      {/* Collapsed row */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-900/40 hover:bg-gray-900/70 transition-colors text-[11px]"
+      >
+        <span className={clsx('px-1.5 py-0.5 rounded border text-[9px] shrink-0', NODE_COLOR[from.type])}>
+          {nodeLabel(from)}
+        </span>
+        <span className="text-gray-600 italic shrink-0 truncate">{rel.verb}</span>
+        <span className={clsx('px-1.5 py-0.5 rounded border text-[9px] shrink-0', NODE_COLOR[to.type])}>
+          {nodeLabel(to)}
+        </span>
+        <span className="flex-1" />
+        <span className={clsx('text-[9px] px-1 py-0.5 rounded border shrink-0', PROV_BADGE[rel.provenanceType])}>
+          {rel.provenanceType === 'query_result' ? 'qr' : rel.provenanceType === 'pinned_finding' ? '◈' : '✎'}
+        </span>
+        <span className="text-[10px] text-gray-700 shrink-0">{isExpanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Expanded provenance panel */}
+      {isExpanded && (
+        <div className="bg-gray-950/60 border-t border-gray-800/40 px-3 py-2.5 space-y-1.5">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-600 w-14 shrink-0">Source:</span>
+              <span className="text-gray-400">{sourceLabel}</span>
+            </div>
+            {rel.sourceTable && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Table:</span>
+                <span className="text-blue-400 font-mono">{rel.sourceTable}</span>
+              </div>
+            )}
+            {rel.artifactTitle && (
+              <div className="flex items-center gap-1.5 col-span-2">
+                <span className="text-gray-600 w-14 shrink-0">Artifact:</span>
+                <span className="text-gray-400 truncate">{rel.artifactTitle}</span>
+              </div>
+            )}
+            {rel.rowCount !== undefined && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Rows:</span>
+                <span className="text-gray-400">{rel.rowCount} supporting rows</span>
+              </div>
+            )}
+            {rel.timestamp && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Added:</span>
+                <span className="text-gray-500 font-mono">{fmtTs(rel.timestamp)}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 col-span-2">
+              <span className="text-gray-600 w-14 shrink-0">Type:</span>
+              <span className={clsx('text-[9px] px-1.5 py-0.5 rounded border', PROV_BADGE[rel.provenanceType])}>
+                {PROV_LABEL[rel.provenanceType]}
+              </span>
+            </div>
+          </div>
+
+          {/* Finding text preview */}
+          {rel.provenanceType === 'pinned_finding' && rel.provenance && (
+            <p className="text-[10px] text-gray-600 italic border-t border-gray-800/40 pt-1.5 leading-relaxed">
+              "{rel.provenance.slice(0, 120)}{rel.provenance.length > 120 ? '…' : ''}"
+            </p>
+          )}
+
+          {/* Quick actions */}
+          <div className="flex gap-1.5 pt-1 border-t border-gray-800/30 flex-wrap">
+            <button
+              onClick={() =>
+                submitCommand(
+                  `Show ${rel.sourceTable ?? 'security'} events for ${from.value}`,
+                  { source: 'investigation_quick_action' },
+                )
+              }
+              className="text-[9px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+            >
+              Open in Logs →
+            </button>
+            <button
+              onClick={() =>
+                submitCommand(
+                  `Investigate relationship between ${from.value} and ${to.value}`,
+                  { source: 'investigation_quick_action' },
+                )
+              }
+              className="text-[9px] px-1.5 py-0.5 rounded border text-purple-400 border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 transition-colors"
+            >
+              Investigate →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Gap row ────────────────────────────────────────────────────────────────
+
+function GapRow({ gap }: { gap: InvestigationGap }) {
+  const color = GAP_COLOR[gap.severity]
+  return (
+    <div className={clsx('flex items-start gap-2.5 px-3 py-2.5 rounded-lg border', color)}>
+      <span className="text-xs shrink-0 mt-0.5">⚠</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] text-gray-300 mb-1">{gap.description}</p>
+        <button
+          onClick={() => submitCommand(gap.suggestedAction, { source: 'investigation_quick_action' })}
+          className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          {gap.suggestedAction} →
+        </button>
+      </div>
+      <span className={clsx('text-[9px] px-1 py-0.5 rounded border shrink-0', color)}>
+        {gap.severity}
+      </span>
+    </div>
+  )
+}
+
+// ── Entity detail panel ───────────────────────────────────────────────────
+
 function EntityDetailPanel({
   node,
   relationships,
   inv,
   onClose,
+  isReviewed,
+  onMarkReviewed,
 }: {
   node: EvidenceNode
   relationships: EvidenceRelationship[]
   inv: Investigation
   onClose: () => void
+  isReviewed: boolean
+  onMarkReviewed: () => void
 }) {
+  const { addNote, activeInvestigationId } = useInvestigationStore()
+  const [copied, setCopied] = useState(false)
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
+
   const relatedRels = relationships.filter(
     (r) => r.fromNodeId === node.id || r.toNodeId === node.id,
   )
-  const sourceArtifacts = inv.artifacts.filter((a) =>
-    node.sourceArtifactIds.includes(a.id),
-  )
-  const sourceNotes = inv.notes.filter((n) => node.noteIds.includes(n.id))
-  const actions = quickActionsForNode(node)
+  const sourceArtifacts = inv.artifacts.filter((a) => node.sourceArtifactIds.includes(a.id))
+  const sourceNotes     = inv.notes.filter((n) => node.noteIds.includes(n.id))
+  const aiActions       = quickActionsForNode(node)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(node.value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard not available (e.g. HTTP)
+    }
+  }
+
+  const handleSaveNote = () => {
+    const text = noteDraft.trim()
+    if (!text || !activeInvestigationId) return
+    addNote(`${text}\n\nEntity: ${node.value} [${node.type}] — added from Evidence tab`)
+    setNoteOpen(false)
+    setNoteDraft('')
+  }
 
   return (
     <div className="border border-gray-700/60 rounded-xl bg-gray-900/80 p-4 space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span className={clsx('text-[10px] px-1.5 py-0.5 rounded border shrink-0', NODE_COLOR[node.type])}>
             {node.type}
           </span>
@@ -98,29 +301,90 @@ function EntityDetailPanel({
               pinned
             </span>
           )}
+          {isReviewed && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/25 shrink-0">
+              reviewed
+            </span>
+          )}
         </div>
-        <button
-          onClick={onClose}
-          className="text-gray-600 hover:text-gray-300 transition-colors text-lg leading-none shrink-0"
-        >
+        <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition-colors text-lg leading-none shrink-0">
           ×
         </button>
       </div>
 
-      {/* Quick actions */}
+      {/* Manual analyst actions */}
       <div>
         <div className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">
-          Quick Actions
+          Analyst Actions
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {actions.map((a) => (
+          <button
+            onClick={handleCopy}
+            className="text-[10px] px-2 py-1 rounded border text-gray-400 border-gray-600/40 bg-gray-800/40 hover:text-gray-200 hover:border-gray-500/60 transition-colors"
+          >
+            {copied ? '✓ Copied' : 'Copy value'}
+          </button>
+          <button
+            onClick={() => { setNoteOpen((o) => !o); setNoteDraft('') }}
+            className="text-[10px] px-2 py-1 rounded border text-cyan-400 border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
+          >
+            Add note
+          </button>
+          <button
+            onClick={onMarkReviewed}
+            className={clsx(
+              'text-[10px] px-2 py-1 rounded border transition-colors',
+              isReviewed
+                ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20'
+                : 'text-gray-400 border-gray-600/40 bg-gray-800/40 hover:text-gray-200 hover:border-gray-500/60',
+            )}
+          >
+            {isReviewed ? '✓ Reviewed' : 'Mark reviewed'}
+          </button>
+        </div>
+
+        {/* Note inline form */}
+        {noteOpen && (
+          <div className="mt-2 space-y-1.5">
+            <textarea
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder={`Note about ${node.value}…`}
+              rows={2}
+              className="w-full bg-transparent text-[11px] text-gray-200 placeholder-gray-600 resize-none outline-none border border-gray-700/40 rounded px-2 py-1.5 focus:border-cyan-500/40"
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleSaveNote}
+                disabled={!noteDraft.trim()}
+                className="text-[10px] px-2 py-1 rounded bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-600/30 disabled:opacity-40 transition-colors"
+              >
+                Save note
+              </button>
+              <button
+                onClick={() => setNoteOpen(false)}
+                className="text-[10px] px-2 py-1 rounded border border-gray-700/40 text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AI-assisted actions */}
+      <div>
+        <div className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">
+          AI Actions
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {aiActions.map((a) => (
             <button
               key={a.label}
               onClick={() => submitCommand(a.prompt, { source: 'investigation_quick_action' })}
               className={clsx(
-                'text-[10px] px-2 py-1 rounded border transition-colors',
+                'text-[10px] px-2 py-1 rounded border transition-colors hover:opacity-80',
                 NODE_COLOR[node.type],
-                'hover:opacity-80',
               )}
             >
               {a.label} →
@@ -136,15 +400,20 @@ function EntityDetailPanel({
             Relationships ({relatedRels.length})
           </div>
           <div className="space-y-1">
-            {relatedRels.map((r) => (
-              <div key={r.id} className="flex items-start gap-1.5 text-[10px] text-gray-400">
-                <span className="text-gray-600 shrink-0 mt-0.5">→</span>
-                <span className="italic text-gray-500 shrink-0">{r.verb}</span>
-                <span className="text-gray-600 truncate" title={r.provenance}>
-                  ({r.provenanceRef})
-                </span>
-              </div>
-            ))}
+            {relatedRels.map((r) => {
+              return (
+                <div key={r.id} className="flex items-start gap-1.5 text-[10px]">
+                  <span className="text-gray-600 shrink-0 mt-0.5">→</span>
+                  <span className="italic text-gray-500 shrink-0">{r.verb}</span>
+                  {r.sourceTable && (
+                    <span className="text-blue-400 font-mono text-[9px] shrink-0">({r.sourceTable})</span>
+                  )}
+                  {r.provenanceType === 'pinned_finding' && (
+                    <span className="text-amber-500 text-[9px] shrink-0">◈</span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -153,13 +422,18 @@ function EntityDetailPanel({
       {sourceArtifacts.length > 0 && (
         <div>
           <div className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">
-            Source Artifacts
+            Source Artifacts ({sourceArtifacts.length})
           </div>
           <div className="space-y-1">
             {sourceArtifacts.map((a) => (
               <div key={a.id} className="text-[10px] text-gray-400 flex items-center gap-1.5">
-                <span className="text-gray-600">⊟</span>
+                <span className="text-gray-600 shrink-0">
+                  {a.type === 'query_result' ? '⊟' : a.type === 'timeline' ? '▶' : '◈'}
+                </span>
                 <span className="truncate">{a.title}</span>
+                {a.type === 'query_result' && (
+                  <span className="text-[9px] text-blue-400 shrink-0">qr</span>
+                )}
               </div>
             ))}
           </div>
@@ -186,59 +460,31 @@ function EntityDetailPanel({
   )
 }
 
-function RelationshipRow({ rel, nodes }: { rel: EvidenceRelationship; nodes: EvidenceNode[] }) {
-  const from = nodes.find((n) => n.id === rel.fromNodeId)
-  const to = nodes.find((n) => n.id === rel.toNodeId)
-  if (!from || !to || from.id === to.id) return null
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-900/40 border border-gray-800/50 text-[11px]">
-      <span className={clsx('px-1.5 py-0.5 rounded border text-[9px]', NODE_COLOR[from.type])}>
-        {nodeLabel(from)}
-      </span>
-      <span className="text-gray-600 italic shrink-0">{rel.verb}</span>
-      <span className={clsx('px-1.5 py-0.5 rounded border text-[9px]', NODE_COLOR[to.type])}>
-        {nodeLabel(to)}
-      </span>
-    </div>
-  )
-}
-
-function GapRow({ gap }: { gap: InvestigationGap }) {
-  const color = GAP_COLOR[gap.severity]
-
-  return (
-    <div className={clsx('flex items-start gap-2.5 px-3 py-2.5 rounded-lg border', color)}>
-      <span className="text-xs shrink-0 mt-0.5">⚠</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] text-gray-300 mb-1">{gap.description}</p>
-        <button
-          onClick={() => submitCommand(gap.suggestedAction, { source: 'investigation_quick_action' })}
-          className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          {gap.suggestedAction} →
-        </button>
-      </div>
-      <span className={clsx('text-[9px] px-1 py-0.5 rounded border shrink-0', color)}>
-        {gap.severity}
-      </span>
-    </div>
-  )
-}
+// ── Main EvidenceGraph component ──────────────────────────────────────────
 
 interface Props {
   inv: Investigation
 }
 
 export function EvidenceGraph({ inv }: Props) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedNodeId,  setSelectedNodeId]  = useState<string | null>(null)
+  const [expandedRelId,   setExpandedRelId]   = useState<string | null>(null)
+  const [reviewedNodeIds, setReviewedNodeIds] = useState<Set<string>>(new Set())
 
   const evidence = useMemo(() => deriveEvidence(inv), [inv])
   const { nodes, relationships, gaps } = evidence
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
 
-  // Group nodes by type for sidebar display
+  const toggleReviewed = (nodeId: string) =>
+    setReviewedNodeIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) next.delete(nodeId)
+      else next.add(nodeId)
+      return next
+    })
+
+  // Group nodes by type
   const groupedNodes = useMemo(() => {
     const order: string[] = ['user', 'host', 'ip', 'country', 'process', 'entity']
     const groups: Record<string, EvidenceNode[]> = {}
@@ -250,14 +496,14 @@ export function EvidenceGraph({ inv }: Props) {
     return order.filter((t) => groups[t].length > 0).map((t) => ({ type: t, nodes: groups[t] }))
   }, [nodes])
 
-  const nonSelfRelationships = relationships.filter(
-    (r) => r.fromNodeId !== r.toNodeId,
-  )
+  const nonSelfRels = relationships.filter((r) => r.fromNodeId !== r.toNodeId)
 
   return (
     <div className="space-y-5">
-      {/* Entity nodes + detail panel */}
+
+      {/* Entities + detail panel */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
         {/* Entity sidebar */}
         <div className="space-y-3">
           <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
@@ -269,41 +515,47 @@ export function EvidenceGraph({ inv }: Props) {
                 {type} ({group.length})
               </div>
               <div className="space-y-1">
-                {group.map((node) => (
-                  <button
-                    key={node.id}
-                    onClick={() =>
-                      setSelectedNodeId((prev) => (prev === node.id ? null : node.id))
-                    }
-                    className={clsx(
-                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-colors',
-                      selectedNodeId === node.id
-                        ? 'border-blue-500/50 bg-blue-500/10'
-                        : 'border-gray-800/60 bg-gray-900/40 hover:border-gray-700/60 hover:bg-gray-900/60',
-                    )}
-                  >
-                    <span className="text-base leading-none shrink-0" style={{ opacity: 0.7 }}>
-                      {NODE_ICON[node.type]}
-                    </span>
-                    <span className="flex-1 text-xs text-gray-200 font-mono truncate">
-                      {nodeLabel(node)}
-                    </span>
-                    {node.inPinnedFinding && (
-                      <span className="text-[9px] text-amber-500 shrink-0">◈</span>
-                    )}
-                    {node.sourceArtifactIds.length > 0 && (
-                      <span className="text-[9px] text-gray-600 shrink-0 font-mono">
-                        {node.sourceArtifactIds.length}×
+                {group.map((node) => {
+                  const reviewed = reviewedNodeIds.has(node.id)
+                  return (
+                    <button
+                      key={node.id}
+                      onClick={() => setSelectedNodeId((prev) => (prev === node.id ? null : node.id))}
+                      className={clsx(
+                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-colors',
+                        selectedNodeId === node.id
+                          ? 'border-blue-500/50 bg-blue-500/10'
+                          : reviewed
+                          ? 'border-emerald-500/20 bg-emerald-500/5 opacity-60'
+                          : 'border-gray-800/60 bg-gray-900/40 hover:border-gray-700/60 hover:bg-gray-900/60',
+                      )}
+                    >
+                      <span className="text-base leading-none shrink-0 opacity-70">
+                        {NODE_ICON[node.type]}
                       </span>
-                    )}
-                  </button>
-                ))}
+                      <span className={clsx('flex-1 text-xs font-mono truncate', reviewed ? 'line-through text-gray-500' : 'text-gray-200')}>
+                        {nodeLabel(node)}
+                      </span>
+                      {node.inPinnedFinding && (
+                        <span className="text-[9px] text-amber-500 shrink-0">◈</span>
+                      )}
+                      {reviewed && (
+                        <span className="text-[9px] text-emerald-500 shrink-0">✓</span>
+                      )}
+                      {node.sourceArtifactIds.length > 0 && !reviewed && (
+                        <span className="text-[9px] text-gray-600 shrink-0 font-mono">
+                          {node.sourceArtifactIds.length}×
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Entity detail panel or relationships */}
+        {/* Entity detail panel or relationship list */}
         <div>
           {selectedNode ? (
             <EntityDetailPanel
@@ -311,20 +563,28 @@ export function EvidenceGraph({ inv }: Props) {
               relationships={relationships}
               inv={inv}
               onClose={() => setSelectedNodeId(null)}
+              isReviewed={reviewedNodeIds.has(selectedNode.id)}
+              onMarkReviewed={() => toggleReviewed(selectedNode.id)}
             />
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
-                Relationships ({nonSelfRelationships.length})
+                Relationships ({nonSelfRels.length})
               </div>
-              {nonSelfRelationships.length === 0 ? (
+              {nonSelfRels.length === 0 ? (
                 <p className="text-xs text-gray-700 py-4 text-center">
-                  No relationships derived yet. Pin findings to extract entity connections.
+                  No relationships derived yet. Save query results or pin findings to extract entity connections.
                 </p>
               ) : (
-                <div className="space-y-1.5">
-                  {nonSelfRelationships.map((r) => (
-                    <RelationshipRow key={r.id} rel={r} nodes={nodes} />
+                <div className="space-y-1">
+                  {nonSelfRels.map((r) => (
+                    <RelationshipRow
+                      key={r.id}
+                      rel={r}
+                      nodes={nodes}
+                      isExpanded={expandedRelId === r.id}
+                      onToggle={() => setExpandedRelId((prev) => (prev === r.id ? null : r.id))}
+                    />
                   ))}
                 </div>
               )}
@@ -340,7 +600,7 @@ export function EvidenceGraph({ inv }: Props) {
         </div>
         {gaps.length === 0 ? (
           <div className="px-3 py-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-400">
-            No gaps detected — investigation coverage looks complete.
+            No modeled gaps detected — current SentinelIQ checks look complete.
           </div>
         ) : (
           <div className="space-y-1.5">

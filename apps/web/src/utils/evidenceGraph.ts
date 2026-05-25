@@ -6,7 +6,19 @@ import type {
   EvidenceTimelineEntry,
   DerivedEvidence,
   EntityNodeType,
+  ProvenanceType,
 } from '../types/evidence'
+
+// ── Lightweight type for query_result artifact data ────────────────────────
+
+interface QueryResultData {
+  columns?: string[]
+  rows?: string[][]
+  rowCount?: number
+  sourceTable?: string
+  extractedEntities?: Array<{ type: string; value: string }>
+  kql?: string
+}
 
 // ── Entity classification ──────────────────────────────────────────────────
 
@@ -14,6 +26,8 @@ const EMAIL_RE = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
 const IP_RE = /^\d{1,3}(\.\d{1,3}){3}(\/\d+)?$/
 const HOST_RE = /^(DESKTOP|SERVER|WORKSTATION|DC|SRV|LAP|PC)[-_].+/i
 const COUNTRY_RE = /^(Russia|China|Iran|North Korea|Ukraine|Romania|Brazil|India|Nigeria|Germany|France|United States|US|UK|Canada)$/i
+const LOCATION_RE = /^[A-Z]{2}\s*\/\s*[A-Za-z\s]+$/  // e.g. "RU / Moscow"
+const PROCESS_RE = /\.(exe|dll|ps1|bat|vbs|sh|py)$/i
 const SHORT_USER_RE = /^[a-z][a-z0-9._-]{1,30}$/
 
 export function classifyEntityString(value: string): EntityNodeType {
@@ -21,15 +35,16 @@ export function classifyEntityString(value: string): EntityNodeType {
   if (IP_RE.test(value)) return 'ip'
   if (HOST_RE.test(value)) return 'host'
   if (COUNTRY_RE.test(value)) return 'country'
-  // Heuristic: short lowercase alphanumeric strings that look like usernames
-  if (SHORT_USER_RE.test(value) && !value.includes('.exe') && !value.includes('/')) return 'user'
+  if (LOCATION_RE.test(value)) return 'country'
+  if (PROCESS_RE.test(value)) return 'process'
+  if (SHORT_USER_RE.test(value) && !value.includes('/')) return 'user'
   return 'entity'
 }
 
 // ── Node derivation ────────────────────────────────────────────────────────
 
 function makeNodeId(value: string): string {
-  return `node:${value.toLowerCase().replace(/[^a-z0-9@._-]/g, '_')}`
+  return `node:${value.toLowerCase().replace(/[^a-z0-9@._/-]/g, '_')}`
 }
 
 export function deriveNodes(inv: Investigation): EvidenceNode[] {
@@ -42,6 +57,7 @@ export function deriveNodes(inv: Investigation): EvidenceNode[] {
     noteId?: string,
     inFinding?: boolean,
   ) => {
+    if (!value.trim()) return
     const id = makeNodeId(value)
     const existing = map.get(id)
     if (existing) {
@@ -64,54 +80,110 @@ export function deriveNodes(inv: Investigation): EvidenceNode[] {
     }
   }
 
-  // From investigation.entities[]
-  for (const e of inv.entities) {
-    upsert(e)
-  }
+  // 1. From investigation.entities[]
+  for (const e of inv.entities) upsert(e)
 
-  // From artifact titles — pull any entity strings that appear verbatim
+  // 2. From artifact titles — verbatim entity matches
   for (const art of inv.artifacts) {
     for (const e of inv.entities) {
-      if (art.title.includes(e)) {
-        upsert(e, art.id, art.title)
+      if (art.title.includes(e)) upsert(e, art.id, art.title)
+    }
+  }
+
+  // 3. From query_result artifact extractedEntities (deepest source)
+  for (const art of inv.artifacts) {
+    if (art.type !== 'query_result') continue
+    const d = art.data as QueryResultData
+    if (!d?.extractedEntities) continue
+    for (const entity of d.extractedEntities) {
+      if (entity.value) upsert(entity.value, art.id, art.title)
+    }
+    // Also extract additional entities from rows not captured in extractedEntities
+    if (d.columns && d.rows && d.sourceTable) {
+      for (const extra of extractAdditionalEntitiesFromRows(d.sourceTable, d.columns, d.rows)) {
+        upsert(extra, art.id, art.title)
       }
     }
   }
 
-  // From pinned findings — tag entities that appear in finding text
+  // 4. From pinned findings — entities in finding text + IPs + countries
   for (const finding of inv.pinned_findings) {
     for (const e of inv.entities) {
-      if (finding.includes(e)) {
-        upsert(e, undefined, undefined, undefined, true)
-      }
+      if (finding.includes(e)) upsert(e, undefined, undefined, undefined, true)
     }
-    // Also extract IP-like tokens not already in entities
     const ipMatches = finding.match(/\d{1,3}(?:\.\d{1,3}){3}/g) ?? []
-    for (const ip of ipMatches) {
-      upsert(ip, undefined, undefined, undefined, true)
-    }
-    // Extract country names
+    for (const ip of ipMatches) upsert(ip, undefined, undefined, undefined, true)
+
     const countryMatch = finding.match(
       /\b(Russia|China|Iran|North Korea|Ukraine|Romania|Brazil|India|Nigeria|Germany|France|United States|US|UK|Canada)\b/i,
     )
-    if (countryMatch) {
-      upsert(countryMatch[1], undefined, undefined, undefined, true)
-    }
+    if (countryMatch) upsert(countryMatch[1], undefined, undefined, undefined, true)
   }
 
-  // From notes — tag entities mentioned in note body
+  // 5. From notes
   for (const note of inv.notes) {
     for (const e of inv.entities) {
-      if (note.content.includes(e)) {
-        upsert(e, undefined, undefined, note.id)
-      }
+      if (note.content.includes(e)) upsert(e, undefined, undefined, note.id)
     }
   }
 
   return [...map.values()]
 }
 
+// Extract any entity strings from rows that aren't already captured in extractedEntities
+function extractAdditionalEntitiesFromRows(
+  sourceTable: string,
+  columns: string[],
+  rows: string[][],
+): string[] {
+  const col = (name: string) => columns.findIndex((c) => c.toLowerCase() === name.toLowerCase())
+  const extras: string[] = []
+
+  if (sourceTable === 'SigninLogs') {
+    const locIdx = col('Location')
+    if (locIdx >= 0) {
+      for (const row of rows) {
+        const loc = row[locIdx]
+        if (loc && !loc.includes('US')) extras.push(loc)
+      }
+    }
+  }
+
+  if (sourceTable === 'DeviceProcessEvents') {
+    const fileIdx = col('FileName')
+    if (fileIdx >= 0) {
+      for (const row of rows) {
+        const f = row[fileIdx]
+        if (f) extras.push(f)
+      }
+    }
+  }
+
+  if (sourceTable === 'SecurityEvent') {
+    const eidIdx = col('EventID')
+    if (eidIdx >= 0) {
+      for (const row of rows) {
+        const eid = row[eidIdx]
+        if (eid) extras.push(eid)
+      }
+    }
+  }
+
+  return extras
+}
+
 // ── Relationship derivation ────────────────────────────────────────────────
+
+interface RelProvenance {
+  provenance: string
+  provenanceRef: string
+  provenanceType: ProvenanceType
+  sourceTable?: string
+  artifactTitle?: string
+  artifactId?: string
+  rowCount?: number
+  timestamp?: string
+}
 
 export function deriveRelationships(
   inv: Investigation,
@@ -119,92 +191,173 @@ export function deriveRelationships(
 ): EvidenceRelationship[] {
   const rels: EvidenceRelationship[] = []
   let seq = 0
+  const seen = new Set<string>()  // dedup key: fromId|verb|toId
 
   const nodeByValue = new Map<string, EvidenceNode>()
   for (const n of nodes) nodeByValue.set(n.value.toLowerCase(), n)
+  const lookupNode = (val: string) => nodeByValue.get(val.trim().toLowerCase())
 
-  const lookupNode = (val: string) => nodeByValue.get(val.toLowerCase())
+  const addRel = (
+    fromNode: EvidenceNode | undefined,
+    toNode: EvidenceNode | undefined,
+    verb: string,
+    prov: RelProvenance,
+  ) => {
+    if (!fromNode || !toNode || fromNode.id === toNode.id) return
+    const key = `${fromNode.id}|${verb}|${toNode.id}`
+    if (seen.has(key)) return
+    seen.add(key)
+    rels.push({ id: `rel-${++seq}`, fromNodeId: fromNode.id, toNodeId: toNode.id, verb, ...prov })
+  }
 
-  // Pattern 1: "X → Y via Z" lateral movement pattern
+  // ── From pinned findings ────────────────────────────────────────────────
+
+  const findingProv = (finding: string): RelProvenance => ({
+    provenance: finding,
+    provenanceRef: 'pinned_finding',
+    provenanceType: 'pinned_finding',
+  })
+
+  // "Lateral movement: X → Y via Z"
   const lateralRe = /Lateral movement:\s*([^\s→]+)\s*→\s*([^\s]+)\s*via\s+(\S+)/i
-  // Pattern 2: "X signed in from Y (IP)" or "X signed in from Country (IP)"
-  const signinRe = /(\S+)\s+signed in from\s+([^(]+?)(?:\s*\(([^)]+)\))?/i
-  // Pattern 3: "X used from unexpected host" → entity relationship
+  // "X signed in from Y (IP)" or "X signed in from Country (IP)"
+  const signinRe = /(\S+@\S+|\S+)\s+signed in from\s+([^(]+?)(?:\s*\(([^)]+)\))?/i
+  // "X used from Y"
   const usedFromRe = /(\S+)\s+used from\s+(\S+)/i
 
   for (const finding of inv.pinned_findings) {
     const lateralMatch = finding.match(lateralRe)
     if (lateralMatch) {
-      const from = lookupNode(lateralMatch[1])
-      const to = lookupNode(lateralMatch[2])
-      if (from && to) {
-        rels.push({
-          id: `rel-${++seq}`,
-          fromNodeId: from.id,
-          toNodeId: to.id,
-          verb: `lateral movement via ${lateralMatch[3]}`,
-          provenance: finding,
-          provenanceRef: 'pinned_finding',
-        })
-      }
+      addRel(
+        lookupNode(lateralMatch[1]),
+        lookupNode(lateralMatch[2]),
+        `lateral movement via ${lateralMatch[3]}`,
+        findingProv(finding),
+      )
     }
 
     const signinMatch = finding.match(signinRe)
     if (signinMatch) {
       const actor = lookupNode(signinMatch[1])
-      const locationOrIp = signinMatch[3] ?? signinMatch[2].trim()
-      const location = lookupNode(locationOrIp) ?? lookupNode(signinMatch[2].trim())
-      if (actor && location) {
-        rels.push({
-          id: `rel-${++seq}`,
-          fromNodeId: actor.id,
-          toNodeId: location.id,
-          verb: 'signed in from',
-          provenance: finding,
-          provenanceRef: 'pinned_finding',
-        })
-      }
+      const locOrIp = signinMatch[3] ?? signinMatch[2].trim()
+      const dest = lookupNode(locOrIp) ?? lookupNode(signinMatch[2].trim())
+      addRel(actor, dest, 'signed in from', findingProv(finding))
     }
 
     const usedFromMatch = finding.match(usedFromRe)
     if (usedFromMatch) {
-      const actor = lookupNode(usedFromMatch[1])
-      const target = lookupNode(usedFromMatch[2])
-      if (actor && target) {
-        rels.push({
-          id: `rel-${++seq}`,
-          fromNodeId: actor.id,
-          toNodeId: target.id,
-          verb: 'used from',
-          provenance: finding,
-          provenanceRef: 'pinned_finding',
-        })
+      addRel(lookupNode(usedFromMatch[1]), lookupNode(usedFromMatch[2]), 'used from', findingProv(finding))
+    }
+  }
+
+  // ── From notes ─────────────────────────────────────────────────────────
+  for (const note of inv.notes) {
+    const prov: RelProvenance = {
+      provenance: note.content,
+      provenanceRef: `note:${note.id}`,
+      provenanceType: 'note',
+      timestamp: note.created_at,
+    }
+    // "X confirmed as" / "X escalating"
+    for (const e1 of nodes) {
+      for (const e2 of nodes) {
+        if (e1.id === e2.id) continue
+        if (
+          note.content.includes(e1.value) &&
+          note.content.includes(e2.value) &&
+          e1.type === 'user' &&
+          (e2.type === 'host' || e2.type === 'ip')
+        ) {
+          addRel(e1, e2, 'mentioned alongside', prov)
+        }
       }
     }
   }
 
-  // Relationship from artifact: query referencing an entity
+  // ── From query_result artifacts ─────────────────────────────────────────
+
   for (const art of inv.artifacts) {
-    for (const node of nodes) {
-      if (
-        art.title.includes(node.value) &&
-        (art.type === 'query' || art.type === 'query_result')
-      ) {
-        // Only add if no duplicate rel already
-        const duplicate = rels.some(
-          (r) =>
-            r.fromNodeId === `node:artifact:${art.id}` &&
-            r.toNodeId === node.id,
-        )
-        if (!duplicate) {
-          rels.push({
-            id: `rel-${++seq}`,
-            fromNodeId: node.id,
-            toNodeId: node.id, // self-ref: query scoped to entity
-            verb: `queried in ${art.title}`,
-            provenance: art.title,
-            provenanceRef: `artifact:${art.id}`,
-          })
+    if (art.type !== 'query_result') continue
+    const d = art.data as QueryResultData
+    if (!d?.columns || !d.rows || !d.sourceTable) continue
+
+    const prov: RelProvenance = {
+      provenance: art.title,
+      provenanceRef: `artifact:${art.id}`,
+      provenanceType: 'query_result',
+      sourceTable: d.sourceTable,
+      artifactTitle: art.title,
+      artifactId: art.id,
+      rowCount: d.rowCount ?? d.rows.length,
+      timestamp: art.created_at,
+    }
+
+    const col = (name: string) =>
+      d.columns!.findIndex((c) => c.toLowerCase() === name.toLowerCase())
+
+    if (d.sourceTable === 'SigninLogs') {
+      const upnIdx = col('UserPrincipalName')
+      const ipIdx  = col('IPAddress')
+      const locIdx = col('Location')
+      for (const row of d.rows) {
+        const user    = upnIdx >= 0 ? lookupNode(row[upnIdx]) : undefined
+        const ip      = ipIdx  >= 0 ? lookupNode(row[ipIdx])  : undefined
+        const country = locIdx >= 0 ? lookupNode(row[locIdx]) : undefined
+        addRel(user, ip, 'signed in from', prov)
+        if (country) addRel(user, country, 'associated with location', prov)
+      }
+    }
+
+    if (d.sourceTable === 'DeviceProcessEvents') {
+      const devIdx  = col('DeviceName')
+      const userIdx = col('AccountName')
+      const fileIdx = col('FileName')
+      for (const row of d.rows) {
+        const host    = devIdx  >= 0 ? lookupNode(row[devIdx])  : undefined
+        const user    = userIdx >= 0 ? lookupNode(row[userIdx]) : undefined
+        const process = fileIdx >= 0 ? lookupNode(row[fileIdx]) : undefined
+        addRel(host, process, 'executed process', prov)
+        addRel(user, process, 'launched process', prov)
+      }
+    }
+
+    if (d.sourceTable === 'DeviceNetworkEvents') {
+      const devIdx  = col('DeviceName')
+      const ripIdx  = col('RemoteIP')
+      for (const row of d.rows) {
+        const host = devIdx >= 0 ? lookupNode(row[devIdx]) : undefined
+        const ip   = ripIdx >= 0 ? lookupNode(row[ripIdx]) : undefined
+        addRel(host, ip, 'connected to', prov)
+      }
+    }
+
+    if (d.sourceTable === 'SecurityEvent') {
+      const compIdx = col('Computer')
+      const userIdx = col('AccountName')
+      const eidIdx  = col('EventID')
+      for (const row of d.rows) {
+        const host    = compIdx >= 0 ? lookupNode(row[compIdx]) : undefined
+        const user    = userIdx >= 0 ? lookupNode(row[userIdx]) : undefined
+        const eventId = eidIdx  >= 0 ? lookupNode(row[eidIdx])  : undefined
+        addRel(user, host, 'logged onto', prov)
+        if (eventId) addRel(host, eventId, 'generated event', prov)
+      }
+    }
+
+    if (d.sourceTable === 'DeviceLogonEvents') {
+      const accIdx = col('AccountName')
+      const devIdx = col('DeviceName')
+      const remIdx = col('RemoteDeviceName')
+      const devIdx2 = col('DeviceName')
+      for (const row of d.rows) {
+        const user    = accIdx  >= 0 ? lookupNode(row[accIdx])  : undefined
+        const source  = devIdx  >= 0 ? lookupNode(row[devIdx])  : undefined
+        const target  = remIdx  >= 0 ? lookupNode(row[remIdx])  : undefined
+        if (user && source) addRel(user, source, 'logged onto', prov)
+        if (source && target) addRel(source, target, 'laterally moved to', prov)
+        if (!target && user && devIdx2 >= 0) {
+          const dev = lookupNode(row[devIdx2])
+          if (dev) addRel(user, dev, 'logged into', prov)
         }
       }
     }
@@ -218,50 +371,66 @@ export function deriveRelationships(
 export function detectGaps(inv: Investigation): InvestigationGap[] {
   const gaps: InvestigationGap[] = []
   const artifactTypes = new Set(inv.artifacts.map((a) => a.type))
+
   const allKql = inv.artifacts
     .map((a) => {
       const d = a.data as Record<string, unknown>
       return typeof d?.kql === 'string' ? d.kql.toLowerCase() : ''
     })
     .join('\n')
+
   const allTurnText = inv.turns.map((t) => t.user_text.toLowerCase()).join('\n')
   const hasIpEntity = inv.entities.some((e) => IP_RE.test(e))
   const hasFinding = inv.pinned_findings.length > 0
+
+  // Helper: check if any query_result artifact used a given SIEM table
+  const hasQueryResultForTable = (table: string) =>
+    inv.artifacts.some(
+      (a) =>
+        a.type === 'query_result' &&
+        ((a.data as QueryResultData)?.sourceTable ?? '').toLowerCase() === table.toLowerCase(),
+    )
 
   if (!artifactTypes.has('timeline')) {
     gaps.push({
       id: 'gap-no-timeline',
       description: 'No attack timeline has been built for this investigation.',
-      suggestedAction: 'Build a timeline — e.g. "Build a timeline for jsmith@corp.com"',
+      suggestedAction: `Build a timeline — e.g. "Build a timeline for ${inv.entities[0] ?? 'the primary entity'}"`,
       severity: 'high',
     })
   }
 
-  const hasProcessQuery =
+  const hasProcessEvidence =
+    hasQueryResultForTable('DeviceProcessEvents') ||
     allKql.includes('deviceprocessevents') ||
     allTurnText.includes('process') ||
     allTurnText.includes('powershell') ||
     allTurnText.includes('command')
-  if (!hasProcessQuery) {
+  if (!hasProcessEvidence) {
     gaps.push({
       id: 'gap-no-process-query',
-      description: 'No process execution query has been run for entities in this investigation.',
-      suggestedAction: 'Query process activity — e.g. "Show PowerShell execution for DESKTOP-42"',
+      description: 'No process execution evidence has been collected for entities in this investigation.',
+      suggestedAction: `Query process activity — e.g. "Show PowerShell execution for ${
+        inv.entities.find((e) => /^(DESKTOP|SERVER|WORKSTATION)/i.test(e)) ?? 'DESKTOP-42'
+      }"`,
       severity: 'high',
     })
   }
 
   if (hasIpEntity) {
-    const hasNetworkQuery =
+    const hasNetworkEvidence =
+      hasQueryResultForTable('DeviceNetworkEvents') ||
       allKql.includes('devicenetworkevents') ||
       allTurnText.includes('network') ||
       allTurnText.includes('outbound') ||
       allTurnText.includes('connection')
-    if (!hasNetworkQuery) {
+    if (!hasNetworkEvidence) {
       gaps.push({
         id: 'gap-no-network-query',
-        description: 'IP entities are present but no network traffic query has been run.',
-        suggestedAction: 'Query network events — e.g. "Show outbound connections from DESKTOP-42"',
+        description: 'IP entities are present but no network traffic evidence has been collected.',
+        suggestedAction: `Query network events — e.g. "Show outbound connections from ${
+          inv.entities.find((e) => /^(DESKTOP|SERVER)/i.test(e)) ?? 'DESKTOP-42'
+        }"`,
         severity: 'medium',
       })
     }
@@ -271,12 +440,13 @@ export function detectGaps(inv: Investigation): InvestigationGap[] {
     gaps.push({
       id: 'gap-no-blast-radius',
       description: 'Blast radius has not been assessed for this investigation.',
-      suggestedAction: 'Run blast radius — e.g. "What is the blast radius for jsmith?"',
+      suggestedAction: `Run blast radius — e.g. "What is the blast radius for ${inv.entities[0] ?? 'the primary entity'}?"`,
       severity: 'medium',
     })
   }
 
-  if (!artifactTypes.has('handoff') && !artifactTypes.has('documentation')) {
+  const hasHandoff = artifactTypes.has('handoff') || artifactTypes.has('documentation')
+  if (!hasHandoff) {
     gaps.push({
       id: 'gap-no-handoff',
       description: 'No handoff or documentation artifact has been generated.',
@@ -307,10 +477,7 @@ export function deriveTimeline(inv: Investigation): EvidenceTimelineEntry[] {
   const entries: EvidenceTimelineEntry[] = []
 
   for (const turn of inv.turns) {
-    // Find linked artifacts
-    const linkedArt = inv.artifacts.find(
-      (a) => turn.artifact_ids.includes(a.id),
-    )
+    const linkedArt = inv.artifacts.find((a) => turn.artifact_ids.includes(a.id))
     entries.push({
       id: `tl-turn-${turn.id}`,
       timestamp: turn.created_at,
@@ -324,7 +491,6 @@ export function deriveTimeline(inv: Investigation): EvidenceTimelineEntry[] {
     })
   }
 
-  // Notes
   for (const note of inv.notes) {
     entries.push({
       id: `tl-note-${note.id}`,
@@ -336,8 +502,6 @@ export function deriveTimeline(inv: Investigation): EvidenceTimelineEntry[] {
     })
   }
 
-  // Pinned findings don't have timestamps; attach them to the investigation created_at
-  // as anchored evidence markers
   for (let i = 0; i < inv.pinned_findings.length; i++) {
     const f = inv.pinned_findings[i]
     entries.push({
@@ -350,7 +514,6 @@ export function deriveTimeline(inv: Investigation): EvidenceTimelineEntry[] {
     })
   }
 
-  // Sort ascending by timestamp
   entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
   return entries
 }

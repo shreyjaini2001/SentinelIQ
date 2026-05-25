@@ -44,23 +44,24 @@ export function parseKqlScope(kql: string): KqlScope {
     }
   }
 
-  // Inventory intent detection (runs before entity-specific routing)
+  // Inventory intent detection (only when no entity scope is present — avoids mislabeling
+  // host/user-scoped queries that happen to contain summarize/inventory column names)
   let scopeLabel: string | undefined
   let intent = 'Security event search'
 
   if (lower.includes('identityinfo')) {
     intent = 'Identity inventory'
     scopeLabel = 'All known users'
-  } else if (lower.includes('signinlogs') && lower.includes('summarize') && lower.includes('lastseen')) {
+  } else if (entityType === null && lower.includes('signinlogs') && lower.includes('summarize') && lower.includes('lastseen')) {
     intent = 'Active user inventory'
     scopeLabel = 'Recently active users'
-  } else if (lower.includes('securityevent') && lower.includes('summarize') && lower.includes('uniqueusers')) {
+  } else if (entityType === null && lower.includes('securityevent') && lower.includes('summarize') && lower.includes('uniqueusers')) {
     intent = 'Host inventory'
     scopeLabel = 'All active endpoints'
-  } else if (lower.includes('devicenetworkevents') && lower.includes('summarize') && lower.includes('connections')) {
+  } else if (entityType === null && lower.includes('devicenetworkevents') && lower.includes('summarize') && lower.includes('connections')) {
     intent = 'IP inventory'
     scopeLabel = 'Public internet IPs'
-  } else if (lower.includes('deviceprocessevents') && lower.includes('summarize') && lower.includes('executions')) {
+  } else if (entityType === null && lower.includes('deviceprocessevents') && lower.includes('summarize') && lower.includes('executions')) {
     intent = 'Process inventory'
     scopeLabel = 'All observed processes'
   } else if (lower.includes('signinlogs')) {

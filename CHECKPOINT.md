@@ -173,6 +173,58 @@ Click any of the four buttons on the welcome screen:
 | v0.7.5 | 2026-05-23 | Query intent precision — 5 inventory intents, IdentityInfo/DeviceProcess/etc KQL branches |
 | v0.7.6 | 2026-05-23 | Fallback cleanup — `_REQUIRED_TABLES` fix, `_NO_TIME_FILTER_TABLES`, inventory-aware fallback |
 | v0.8.0 | 2026-05-25 | Investigation Evidence Graph and Entity Timeline (see below) |
+| v0.8.1 | 2026-05-25 | Evidence Derivation Depth, Relationship Provenance, and Manual Evidence Actions (see below) |
+
+### v0.8.1 — Evidence Derivation Depth, Relationship Provenance, and Manual Evidence Actions
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/evidence.ts` | Extended `EvidenceRelationship` with `provenanceType`, `sourceTable`, `artifactTitle`, `artifactId`, `rowCount`, `timestamp`; added `ProvenanceType` union |
+| `apps/web/src/utils/evidenceGraph.ts` | Rewrote to parse `query_result` artifact rows per SIEM table (SigninLogs, DeviceNetworkEvents, DeviceProcessEvents, SecurityEvent, DeviceLogonEvents); LOCATION_RE + PROCESS_RE classification; full provenance on all relationships; `hasQueryResultForTable()` for gap clearing |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | `RelationshipRow` now collapsible with provenance detail panel (table, artifact, row count, timestamp, type badge, deep-link actions); `EntityDetailPanel` now has analyst actions (Copy, Add note, Mark reviewed) alongside AI quick actions; reviewed entities shown with strikethrough + emerald badge |
+| `apps/web/src/stores/investigationStore.ts` | Added ART-005 (SigninLogs, 3 rows) and ART-006 (DeviceNetworkEvents, 2 rows) fixture `query_result` artifacts to INV-001 |
+| `apps/api/src/llm/mock_client.py` | Fixed Branch F: host-scoped network queries generate row-level KQL (not summarize); `sum(BytesSent)` not `sum(AdditionalFields.BytesSent)` |
+| `apps/web/src/utils/queryPlanner.ts` | Inventory intent detection (IP/Host/Process/User inventory) now gated by `entityType === null` — prevents entity-scoped host/IP queries from being mislabeled as inventory scans |
+| `apps/web/src/App.tsx` | Version bumped to v0.8.1 |
+
+**Evidence derivation — query_result parsing:**
+- `deriveNodes()` processes `extractedEntities` from each `query_result` artifact, then does column-based row extraction per SIEM table to surface additional entities (Location column → country node, FileName → process node)
+- `deriveRelationships()` maps SIEM table + column positions to typed relationship verbs:
+  - SigninLogs: `user → "signed in from" → IP`, `user → "associated with location" → country`
+  - DeviceNetworkEvents: `host → "connected to" → IP`
+  - DeviceProcessEvents: `host → "executed process" → process`, `user → "launched process" → process`
+  - SecurityEvent: `user → "logged onto" → host`, `host → "generated event" → event_id`
+  - DeviceLogonEvents: `user → "logged onto" → host`, `host → "laterally moved to" → remote_host`
+- Relationships deduplicated via `seen: Set<string>` with key `fromId|verb|toId`
+- All relationships carry: `provenanceType`, `sourceTable`, `artifactTitle`, `artifactId`, `rowCount`, `timestamp`
+
+**New entity types exposed:**
+- `country` — classified from "XX / City" location strings via `LOCATION_RE`
+- `process` — classified from `.exe`, `.dll`, `.ps1`, `.bat`, `.sh` file extensions via `PROCESS_RE`
+
+**Relationship detail / expand:**
+- Click any relationship row in the Evidence tab → inline provenance detail expands below the row
+- Detail shows: source artifact title, SIEM table, row count, timestamp, provenance type badge
+- "Open in Logs →" action replays a query for that table; "Investigate →" action investigates the relationship entity
+
+**Manual entity actions (EntityDetailPanel):**
+- **Copy** — `navigator.clipboard.writeText(node.value)` with transient ✓ confirmation
+- **Add note** — inline textarea form; on submit calls `addNote()` from investigationStore, pre-populated with entity value context
+- **Mark reviewed** — toggles a `reviewedNodeIds: Set<string>` in parent state; reviewed entities rendered with strikethrough text, grayed opacity, emerald ✓ badge
+
+**KQL schema fix (mock_client.py):**
+- Generic network summarize branch previously used `sum(AdditionalFields.BytesSent)` — mock schema has `BytesSent` as a direct column, not nested in AdditionalFields
+- Host-scoped network queries now generate row-level KQL (not a summarize), preventing the inventory-intent false positive
+
+**Gap clearing improvement:**
+- `detectGaps()` now uses `hasQueryResultForTable(table)` which checks `art.type === 'query_result' && art.data.sourceTable === table` — a much stronger signal than scanning KQL text for table names
+
+**Known limitations (still Phase 3):**
+- Relationship parsing for pinned findings remains regex-based; complex natural language may miss extractions
+- Row-based entity extraction uses fixed column index positions per table — fragile if SIEM returns columns in different order
+- No cross-investigation entity linking
 
 ### v0.8.0 — Investigation Evidence Graph and Entity Timeline
 

@@ -63,6 +63,52 @@ const FIXTURE: Investigation[] = [
         data: { blast_id: 'BLR-mock-001', risk_score: 8.4, total_reachable_assets: 18 },
         pinned: false,
       },
+      {
+        id: 'ART-005',
+        type: 'query_result',
+        title: 'Query Result — SigninLogs jsmith failed logins',
+        created_at: '2026-05-10T08:23:30Z',
+        data: {
+          columns: ['TimeGenerated', 'UserPrincipalName', 'IPAddress', 'Location', 'ResultType', 'AppDisplayName'],
+          rows: [
+            ['2026-05-10 08:23', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50126', 'Microsoft 365'],
+            ['2026-05-10 08:21', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50126', 'Azure Portal'],
+            ['2026-05-10 08:19', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50053', 'Microsoft 365'],
+          ],
+          rowCount: 3,
+          queryTimeMs: 342,
+          sourceTable: 'SigninLogs',
+          extractedEntities: [
+            { type: 'user', value: 'jsmith@corp.com' },
+            { type: 'ip', value: '185.220.101.5' },
+            { type: 'country', value: 'Russia' },
+          ],
+        },
+        pinned: true,
+      },
+      {
+        id: 'ART-006',
+        type: 'query_result',
+        title: 'Query Result — DeviceNetworkEvents lateral movement',
+        created_at: '2026-05-10T08:45:00Z',
+        data: {
+          columns: ['TimeGenerated', 'DeviceName', 'RemoteIP', 'RemotePort', 'Protocol', 'BytesSent', 'ActionType'],
+          rows: [
+            ['2026-05-10 06:58', 'SERVER-DC01',   '185.220.101.5', '80',   'TCP', '2108000', 'ConnectionSuccess'],
+            ['2026-05-10 04:30', 'DESKTOP-42',    '203.0.113.42',  '4444', 'TCP', '88000',   'ConnectionSuccess'],
+          ],
+          rowCount: 2,
+          queryTimeMs: 198,
+          sourceTable: 'DeviceNetworkEvents',
+          extractedEntities: [
+            { type: 'host', value: 'SERVER-DC01' },
+            { type: 'host', value: 'DESKTOP-42' },
+            { type: 'ip', value: '185.220.101.5' },
+            { type: 'ip', value: '203.0.113.42' },
+          ],
+        },
+        pinned: false,
+      },
     ],
     pinned_findings: [
       'jsmith signed in from Moscow (185.220.101.5) 3× in 4 minutes — impossible travel confirmed',

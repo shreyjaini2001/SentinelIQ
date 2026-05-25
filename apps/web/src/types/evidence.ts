@@ -10,13 +10,27 @@ export interface EvidenceNode {
   inPinnedFinding: boolean
 }
 
+export type ProvenanceType = 'pinned_finding' | 'query_result' | 'note' | 'artifact_title'
+
 export interface EvidenceRelationship {
   id: string
   fromNodeId: string
   toNodeId: string
   verb: string
+  /** Human-readable provenance description */
   provenance: string
+  /** Machine-readable reference: 'pinned_finding' | `artifact:${id}` | `note:${id}` */
   provenanceRef: string
+  provenanceType: ProvenanceType
+  /** SIEM table the relationship was derived from */
+  sourceTable?: string
+  /** Artifact title that produced this relationship */
+  artifactTitle?: string
+  /** Artifact ID that produced this relationship */
+  artifactId?: string
+  /** Number of rows that support this relationship */
+  rowCount?: number
+  /** ISO timestamp when the supporting artifact was created */
   timestamp?: string
 }
 
