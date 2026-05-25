@@ -70,9 +70,14 @@ async def generate_handoff(
     start = datetime.now(timezone.utc)
     dp = get_data_provider()
 
-    alerts = dp.get_alerts(n=10)
-    incidents = dp.get_incidents()
-    past = dp.get_past_investigations()
+    try:
+        alerts = dp.get_alerts(n=10)
+        incidents = dp.get_incidents()
+        past = dp.get_past_investigations()
+    except NotImplementedError:
+        alerts = []
+        incidents = []
+        past = []
 
     open_items: list[HandoffItem] = []
     closed_items: list[HandoffItem] = []

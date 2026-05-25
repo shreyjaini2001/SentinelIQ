@@ -157,8 +157,56 @@ def _stage5_score(
 
 
 def _fallback_kql(text: str, parsed: dict) -> str:
-    table = "SecurityEvent"
-    return f'{table}\n| where TimeGenerated > ago(24h)\n| search "{text}"\n| limit 100'
+    behaviors = parsed.get("behaviors", [])
+
+    # For inventory intents, produce an appropriate summary query rather than a text search.
+    # These behaviors are set by _parse_semantic() when the prompt is clearly an inventory request.
+    if "user_inventory" in behaviors:
+        # Prefer SigninLogs summary — mirrors IdentityInfo intent when that table path fails
+        return (
+            "SigninLogs\n"
+            "| where TimeGenerated > ago(24h)\n"
+            "| summarize LastSeen=max(TimeGenerated), SignInEvents=count(), "
+            "FailedSignIns=countif(ResultType != 0), IPs=make_set(IPAddress, 5), "
+            "Locations=make_set(Location, 5) by UserPrincipalName\n"
+            "| order by LastSeen desc"
+        )
+    if "observed_users" in behaviors:
+        return (
+            "SigninLogs\n"
+            "| where TimeGenerated > ago(24h)\n"
+            "| summarize LastSeen=max(TimeGenerated), SignInEvents=count(), "
+            "FailedSignIns=countif(ResultType != 0), IPs=make_set(IPAddress, 5) by UserPrincipalName\n"
+            "| order by LastSeen desc"
+        )
+    if "host_inventory" in behaviors:
+        return (
+            "SecurityEvent\n"
+            "| where TimeGenerated > ago(24h)\n"
+            "| where isnotempty(Computer)\n"
+            "| summarize LastSeen=max(TimeGenerated), Events=count(), UniqueUsers=dcount(Account) by Computer\n"
+            "| order by Events desc"
+        )
+    if "ip_inventory" in behaviors:
+        return (
+            "DeviceNetworkEvents\n"
+            "| where TimeGenerated > ago(24h)\n"
+            '| where RemoteIPType == "Public"\n'
+            "| summarize Connections=count(), Hosts=make_set(DeviceName, 5), "
+            "FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated) by RemoteIP\n"
+            "| order by Connections desc"
+        )
+    if "process_inventory" in behaviors:
+        return (
+            "DeviceProcessEvents\n"
+            "| where TimeGenerated > ago(24h)\n"
+            "| summarize Executions=count(), Hosts=make_set(DeviceName, 5), "
+            "Users=make_set(AccountName, 5), FirstSeen=min(TimeGenerated) by FileName\n"
+            "| order by Executions desc"
+        )
+
+    # Generic last-resort fallback — only for truly unrecognised intent
+    return f'SecurityEvent\n| where TimeGenerated > ago(24h)\n| search "{text}"\n| limit 100'
 
 
 def _safe_json(raw: str, default: dict) -> dict:

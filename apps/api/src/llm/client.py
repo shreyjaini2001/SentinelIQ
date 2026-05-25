@@ -11,7 +11,7 @@ _use_mock: bool | None = None
 def _is_mock() -> bool:
     global _use_mock
     if _use_mock is None:
-        _use_mock = os.getenv("MOCK_LLM", "false").lower() == "true"
+        _use_mock = settings.mock_llm
     return _use_mock
 
 

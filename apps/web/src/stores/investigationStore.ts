@@ -129,6 +129,7 @@ interface InvestigationState {
   togglePin: (artifactId: string) => void
   addNote: (content: string) => void
   addPinnedFinding: (finding: string) => void
+  removePinnedFindingFrom: (invId: string, finding: string) => void
 }
 
 export const useInvestigationStore = create<InvestigationState>((set, get) => ({
@@ -237,6 +238,16 @@ export const useInvestigationStore = create<InvestigationState>((set, get) => ({
       investigations: s.investigations.map((inv) =>
         inv.id === id
           ? { ...inv, pinned_findings: [...inv.pinned_findings, finding] }
+          : inv
+      ),
+    }))
+  },
+
+  removePinnedFindingFrom: (invId, finding) => {
+    set((s) => ({
+      investigations: s.investigations.map((inv) =>
+        inv.id === invId
+          ? { ...inv, pinned_findings: inv.pinned_findings.filter((f) => f !== finding) }
           : inv
       ),
     }))

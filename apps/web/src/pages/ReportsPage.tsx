@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
+import { useInvestigationStore } from '../stores/investigationStore'
 
 const FIXTURE_REPORTS = [
   {
@@ -36,14 +38,22 @@ const FIXTURE_REPORTS = [
 ]
 
 const VARIANT_STYLE: Record<string, { color: string; label: string }> = {
-  executive:  { color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',     label: 'Executive' },
-  technical:  { color: 'text-blue-400 bg-blue-500/10 border-blue-500/25',     label: 'Technical' },
+  executive:  { color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',      label: 'Executive' },
+  technical:  { color: 'text-blue-400 bg-blue-500/10 border-blue-500/25',      label: 'Technical' },
   handoff:    { color: 'text-amber-400 bg-amber-500/10 border-amber-500/25',   label: 'Handoff' },
   regulatory: { color: 'text-purple-400 bg-purple-500/10 border-purple-500/25', label: 'Regulatory' },
 }
 
 export function ReportsPage() {
   const { setPendingQuery } = useSessionStore()
+  const { investigations, activeInvestigationId } = useInvestigationStore()
+  // Independent report context: defaults to globally active case, but analyst can override here
+  const [reportCaseId, setReportCaseId] = useState<string | null>(activeInvestigationId)
+  const reportInv = investigations.find((i) => i.id === reportCaseId) ?? null
+
+  const contextMeta = reportInv
+    ? `${reportInv.turns.length} turns · ${reportInv.artifacts.length} artifacts · ${reportInv.pinned_findings.length} pinned findings · ${reportInv.notes.length} notes`
+    : null
 
   return (
     <div className="space-y-5">
@@ -55,9 +65,44 @@ export function ReportsPage() {
         </div>
       </div>
 
+      {/* Report context selector — independent of global active case */}
+      <div className="rounded-xl border border-gray-700/50 bg-gray-900/40 px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Report Context</div>
+          {reportInv && (
+            <button
+              onClick={() => setReportCaseId(null)}
+              className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {investigations.length > 0 ? (
+          <select
+            value={reportCaseId ?? ''}
+            onChange={(e) => setReportCaseId(e.target.value || null)}
+            className="w-full text-xs bg-gray-900 border border-gray-700/50 text-gray-300 rounded-lg px-2 py-1.5"
+          >
+            <option value="">No case selected (standalone report)</option>
+            {investigations.map((inv) => (
+              <option key={inv.id} value={inv.id}>{inv.title}</option>
+            ))}
+          </select>
+        ) : (
+          <p className="text-xs text-gray-600">No investigations yet.</p>
+        )}
+        {reportInv && contextMeta && (
+          <p className="text-[10px] text-gray-600 mt-1.5">{contextMeta}</p>
+        )}
+      </div>
+
       {/* Generate prompts */}
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
         <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Generate with AI</div>
+        {reportInv && (
+          <p className="text-[10px] text-gray-600 mb-2">Using: {reportInv.title}</p>
+        )}
         <div className="flex flex-wrap gap-2">
           {[
             'Generate an executive summary for this investigation',

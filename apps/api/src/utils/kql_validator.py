@@ -1,11 +1,18 @@
 import re
 
 _VALID_OPERATORS = {"==", "!=", ">", "<", ">=", "<=", "=~", "!~", "has", "contains", "in", "!in", "between", "startswith", "endswith"}
+
+# All tables used by the NLQ engine (v0.7.6: added entity-grounded + inventory tables)
 _REQUIRED_TABLES = {
     "SigninLogs", "SecurityEvent", "CommonSecurityLog", "Syslog",
     "DeviceProcessEvents", "DeviceNetworkEvents", "AuditLogs",
     "OfficeActivity", "AzureActivity", "BehaviorAnalytics",
+    # Entity-grounded and inventory tables added in v0.7.4+
+    "IdentityInfo", "DeviceEvents", "DeviceLogonEvents", "DeviceInfo",
 }
+
+# Static/reference tables that do not require a time filter
+_NO_TIME_FILTER_TABLES = frozenset({"IdentityInfo", "DeviceInfo"})
 
 
 def validate_kql(query: str) -> tuple[bool, list[str]]:
@@ -27,14 +34,15 @@ def validate_kql(query: str) -> tuple[bool, list[str]]:
         if first_token.lower() not in allowed_starts:
             errors.append(f"Query should start with a known table name or keyword, got: '{first_token}'")
 
-    # Check for time filter (required per PRD)
-    has_time_filter = bool(
-        re.search(r"TimeGenerated", query, re.IGNORECASE) or
-        re.search(r"ago\(", query, re.IGNORECASE) or
-        re.search(r"between\s*\(", query, re.IGNORECASE)
-    )
-    if not has_time_filter:
-        errors.append("Query missing time filter (TimeGenerated or ago())")
+    # Check for time filter — not required for static reference tables (IdentityInfo, DeviceInfo)
+    if first_token not in _NO_TIME_FILTER_TABLES:
+        has_time_filter = bool(
+            re.search(r"TimeGenerated", query, re.IGNORECASE) or
+            re.search(r"ago\(", query, re.IGNORECASE) or
+            re.search(r"between\s*\(", query, re.IGNORECASE)
+        )
+        if not has_time_filter:
+            errors.append("Query missing time filter (TimeGenerated or ago())")
 
     return len(errors) == 0, errors
 

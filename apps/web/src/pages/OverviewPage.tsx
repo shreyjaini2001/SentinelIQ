@@ -1,3 +1,5 @@
+import { submitCommand } from '../utils/commandRunner'
+import { QueryPreviewCard } from '../components/SearchBar/QueryPreviewCard'
 import { AlertTriagePanel } from '../components/panels/AlertTriagePanel'
 import { HuntResultPanel } from '../components/panels/HuntResultPanel'
 import { TimelinePanel } from '../components/panels/TimelinePanel'
@@ -83,7 +85,7 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
   )
 }
 
-function WelcomeState({ onPrompt }: { onPrompt: (text: string) => void }) {
+function WelcomeState() {
   return (
     <div className="space-y-5">
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 px-5 py-4">
@@ -113,7 +115,7 @@ function WelcomeState({ onPrompt }: { onPrompt: (text: string) => void }) {
               {cat.prompts.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => onPrompt(prompt)}
+                  onClick={() => void submitCommand(prompt, { source: 'overview_chip' })}
                   className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all duration-150 ${cat.chip}`}
                 >
                   {prompt}
@@ -127,8 +129,8 @@ function WelcomeState({ onPrompt }: { onPrompt: (text: string) => void }) {
   )
 }
 
-function MainPanel() {
-  const { actionData, currentResult, setPendingQuery } = useSessionStore()
+function MainPanel({ onClear }: { onClear: () => void }) {
+  const { actionData, currentResult } = useSessionStore()
 
   if (actionData?.handler === 'triage')
     return <AlertTriagePanel result={actionData.data as TriageResult} />
@@ -151,9 +153,10 @@ function MainPanel() {
   if (actionData?.handler === 'noise_coaching')
     return <NoiseCoachingPanel result={actionData.data as NoiseCoachingResult} />
 
-  if (currentResult) return null
+  if (currentResult)
+    return <QueryPreviewCard result={currentResult} onDismiss={onClear} />
 
-  return <WelcomeState onPrompt={(text) => setPendingQuery(text)} />
+  return <WelcomeState />
 }
 
 interface OverviewPageProps {
@@ -161,9 +164,16 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({ onNavigate }: OverviewPageProps) {
+  const { actionData, currentResult, clear } = useSessionStore()
+  const hasResult = !!(actionData || currentResult)
+
+  function clearResult() {
+    clear()
+  }
+
   return (
     <div className="space-y-5">
-      {/* Stat cards */}
+      {/* Stat cards — always visible */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Total Alerts"    value={190} sub="updated just now"           color="text-white" />
         <StatCard label="Critical"        value={3}   sub="require immediate action"    color="text-red-400" />
@@ -171,98 +181,115 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
         <StatCard label="Active Hunts"    value={1}   sub="in progress"                 color="text-purple-400" />
       </div>
 
-      {/* Main grid */}
-      <div className="grid grid-cols-3 gap-5">
+      {hasResult ? (
+        /* Result workspace — full width, dashboard widgets hidden */
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={clearResult}
+              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+            >
+              ← Back to dashboard
+            </button>
+            <span className="text-gray-700 text-[11px]">·</span>
+            <span className="text-[11px] text-gray-600">AI Result</span>
+          </div>
+          <MainPanel onClear={clearResult} />
+        </div>
+      ) : (
+        /* Dashboard layout — widgets + welcome/query state */
+        <div className="grid grid-cols-3 gap-5">
 
-        {/* Left column — widgets */}
-        <div className="col-span-1 space-y-4">
+          {/* Left column — widgets */}
+          <div className="col-span-1 space-y-4">
 
-          {/* Alert queue */}
-          <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Alert Queue</h3>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] text-gray-600">Live</span>
+            {/* Alert queue */}
+            <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Alert Queue</h3>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] text-gray-600">Live</span>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {ALERT_QUEUE.map((item) => (
+                  <div key={item.label} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{item.label}</span>
+                      <span className={`text-sm font-mono font-semibold ${item.color}`}>{item.count}</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-gray-800 overflow-hidden">
+                      <div className={`h-full rounded-full ${item.bar} opacity-60`} style={{ width: `${item.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
+                <span className="text-[10px] text-gray-600">190 total</span>
+                <button
+                  onClick={() => onNavigate('alerts')}
+                  className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  View queue →
+                </button>
               </div>
             </div>
-            <div className="space-y-2.5">
-              {ALERT_QUEUE.map((item) => (
-                <div key={item.label} className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{item.label}</span>
-                    <span className={`text-sm font-mono font-semibold ${item.color}`}>{item.count}</span>
+
+            {/* AI Interaction Modes */}
+            <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
+              <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">AI Modes</h3>
+              <div className="space-y-2.5">
+                {[
+                  { mode: 'Query',  color: 'text-blue-400',    dot: 'bg-blue-500',    example: '"Failed logins last 6h"' },
+                  { mode: 'Action', color: 'text-purple-400',  dot: 'bg-purple-500',  example: '"Triage my open alerts"' },
+                  { mode: 'Hunt',   color: 'text-orange-400',  dot: 'bg-orange-500',  example: '"Hunt for LAPSUS$ TTPs"' },
+                  { mode: 'Refine', color: 'text-emerald-400', dot: 'bg-emerald-500', example: '"Now filter to finance"' },
+                ].map((item) => (
+                  <div key={item.mode} className="flex items-start gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full ${item.dot} mt-1.5 shrink-0`} />
+                    <div>
+                      <span className={`text-xs font-medium ${item.color}`}>{item.mode}</span>
+                      <p className="text-[10px] text-gray-600 mt-0.5">{item.example}</p>
+                    </div>
                   </div>
-                  <div className="h-1 rounded-full bg-gray-800 overflow-hidden">
-                    <div className={`h-full rounded-full ${item.bar} opacity-60`} style={{ width: `${item.pct}%` }} />
+                ))}
+              </div>
+            </div>
+
+            {/* Capabilities */}
+            <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
+              <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Capabilities</h3>
+              <div className="space-y-1">
+                {[
+                  { name: 'Alert Triage',        phase: 'P1', color: 'text-emerald-400' },
+                  { name: 'Threat Hunt',         phase: 'P1', color: 'text-emerald-400' },
+                  { name: 'Timeline',            phase: 'P1', color: 'text-emerald-400' },
+                  { name: 'Blast Radius',        phase: 'P2', color: 'text-blue-400' },
+                  { name: 'Documentation',       phase: 'P2', color: 'text-blue-400' },
+                  { name: 'Behavioral Analysis', phase: 'P2', color: 'text-blue-400' },
+                  { name: 'Rule Suggestion',     phase: 'P2', color: 'text-blue-400' },
+                  { name: 'Shift Handoff',       phase: 'P3', color: 'text-cyan-400' },
+                  { name: 'Runbook Generator',   phase: 'P3', color: 'text-cyan-400' },
+                  { name: 'Noise Coaching',      phase: 'P3', color: 'text-cyan-400' },
+                ].map((cap) => (
+                  <div key={cap.name} className="flex items-center justify-between py-0.5">
+                    <span className="text-[11px] text-gray-400">{cap.name}</span>
+                    <span className={`text-[10px] font-mono ${cap.color}`}>{cap.phase}</span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
-              <span className="text-[10px] text-gray-600">190 total</span>
-              <button
-                onClick={() => onNavigate('alerts')}
-                className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                View queue →
-              </button>
-            </div>
+
           </div>
 
-          {/* AI Interaction Modes */}
-          <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-            <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">AI Modes</h3>
-            <div className="space-y-2.5">
-              {[
-                { mode: 'Query',  color: 'text-blue-400',    dot: 'bg-blue-500',    example: '"Failed logins last 6h"' },
-                { mode: 'Action', color: 'text-purple-400',  dot: 'bg-purple-500',  example: '"Triage my open alerts"' },
-                { mode: 'Hunt',   color: 'text-orange-400',  dot: 'bg-orange-500',  example: '"Hunt for LAPSUS$ TTPs"' },
-                { mode: 'Refine', color: 'text-emerald-400', dot: 'bg-emerald-500', example: '"Now filter to finance"' },
-              ].map((item) => (
-                <div key={item.mode} className="flex items-start gap-2">
-                  <div className={`w-1.5 h-1.5 rounded-full ${item.dot} mt-1.5 shrink-0`} />
-                  <div>
-                    <span className={`text-xs font-medium ${item.color}`}>{item.mode}</span>
-                    <p className="text-[10px] text-gray-600 mt-0.5">{item.example}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Capabilities */}
-          <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-            <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Capabilities</h3>
-            <div className="space-y-1">
-              {[
-                { name: 'Alert Triage',        phase: 'P1', color: 'text-emerald-400' },
-                { name: 'Threat Hunt',         phase: 'P1', color: 'text-emerald-400' },
-                { name: 'Timeline',            phase: 'P1', color: 'text-emerald-400' },
-                { name: 'Blast Radius',        phase: 'P2', color: 'text-blue-400' },
-                { name: 'Documentation',       phase: 'P2', color: 'text-blue-400' },
-                { name: 'Behavioral Analysis', phase: 'P2', color: 'text-blue-400' },
-                { name: 'Rule Suggestion',     phase: 'P2', color: 'text-blue-400' },
-                { name: 'Shift Handoff',       phase: 'P3', color: 'text-cyan-400' },
-                { name: 'Runbook Generator',   phase: 'P3', color: 'text-cyan-400' },
-                { name: 'Noise Coaching',      phase: 'P3', color: 'text-cyan-400' },
-              ].map((cap) => (
-                <div key={cap.name} className="flex items-center justify-between py-0.5">
-                  <span className="text-[11px] text-gray-400">{cap.name}</span>
-                  <span className={`text-[10px] font-mono ${cap.color}`}>{cap.phase}</span>
-                </div>
-              ))}
-            </div>
+          {/* Right column — AI workspace / welcome state */}
+          <div className="col-span-2 space-y-4">
+            <MainPanel onClear={clearResult} />
           </div>
 
         </div>
-
-        {/* Right column — AI workspace */}
-        <div className="col-span-2 space-y-4">
-          <MainPanel />
-        </div>
-
-      </div>
+      )}
     </div>
   )
 }

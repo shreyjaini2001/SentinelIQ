@@ -2,13 +2,103 @@
 Mock LLM responses for development without API credits.
 Activated when MOCK_LLM=true in .env or when API returns billing errors.
 Uses keyword-based heuristics to produce realistic-looking outputs.
+v0.7.6: Validator now accepts all entity/inventory tables; fallback no longer emits generic search for inventory intents.
 """
 
+import ast
 import json
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
+
+# Known short usernames in the mock corpus (excludes generic words like 'admin')
+_KNOWN_USERNAMES: frozenset[str] = frozenset({
+    'jsmith', 'mwatson', 'jdoe', 'tbrown', 'lgarcia',
+})
+
+def _extract_entities_from_text(text: str) -> list[dict]:
+    """Extract typed entities from any text string (prompt, stage context, etc.)."""
+    entities: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(type_: str, value: str) -> None:
+        key = f"{type_}:{value.lower()}"
+        if key not in seen:
+            seen.add(key)
+            entities.append({'type': type_, 'value': value})
+
+    # 1. IP addresses
+    for ip in re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', text):
+        _add('ip', ip)
+
+    # 2. Email-format users  (jsmith@corp.com)
+    seen_local: set[str] = set()
+    for email in re.findall(r'\b[a-z][a-z0-9._-]*@[a-z0-9][a-z0-9.-]*\.[a-z]{2,}\b', text, re.I):
+        _add('user', email.lower())
+        seen_local.add(email.split('@')[0].lower())
+
+    # 3. Service accounts: admin-svc, svc-backup, svc-*
+    for svc in re.findall(r'\b(?:admin|svc|service)-[a-z][a-z0-9-]*\b', text, re.I):
+        _add('user', svc.lower())
+
+    # 4. Known short usernames (word-boundary matched, not already seen as email local part)
+    for name in _KNOWN_USERNAMES:
+        if name not in seen_local and re.search(r'\b' + re.escape(name) + r'\b', text, re.I):
+            _add('user', name)
+
+    # 5. Hosts: DESKTOP-X, SERVER-X, WORKSTATION-X, LAPTOP-X, DC-X
+    for host in re.findall(r'\b(?:DESKTOP|SERVER|WORKSTATION|LAPTOP|DC)-[A-Z0-9]+\b', text, re.I):
+        _add('host', host.upper())
+
+    # 6. Processes
+    for proc in re.findall(
+        r'\b(?:powershell|cmd|wscript|mshta|lsass|mimikatz|regsvr32|rundll32|certutil)\.exe\b',
+        text, re.I
+    ):
+        _add('process', proc.lower())
+
+    # 7. Event IDs
+    for eid in re.findall(r'\b(4624|4625|4648|4720|4728|4672|4673|4674|4688|4768|4769)\b', text):
+        _add('event_id', eid)
+
+    return entities
+
+
+def _extract_entities_from_stage3(text: str) -> list[dict]:
+    """Parse entities from stage 3 message which contains the parsed-intent dict repr."""
+    # Try ast.literal_eval on the parsed intent section
+    intent_match = re.search(
+        r"Generate KQL for this parsed intent:\n(.+?)\n\nResolved descriptors:",
+        text, re.DOTALL
+    )
+    if intent_match:
+        try:
+            parsed = ast.literal_eval(intent_match.group(1).strip())
+            ents = parsed.get('entities', [])
+            if ents:
+                return ents
+        except (ValueError, SyntaxError):
+            pass
+    # Fallback: raw regex extraction on the full text
+    return _extract_entities_from_text(text)
+
+
+def _extract_time_filter_from_stage3(text: str) -> str:
+    """Extract KQL time filter from stage 3 context."""
+    # Try structured kql_ago field first
+    kql_ago_m = re.search(r"'kql_ago':\s*'([^']+)'", text)
+    if kql_ago_m:
+        return f"TimeGenerated > {kql_ago_m.group(1)}"
+    # Fallback to keyword detection
+    tl = text.lower()
+    if 'ago(6h)' in tl or '6 hour' in tl or 'last 6' in tl:
+        return 'TimeGenerated > ago(6h)'
+    if 'ago(7d)' in tl or '7 day' in tl or 'week' in tl:
+        return 'TimeGenerated > ago(7d)'
+    if 'ago(3d)' in tl or '3 day' in tl:
+        return 'TimeGenerated > ago(3d)'
+    return 'TimeGenerated > ago(24h)'
 
 
 def _score_alert_mock(text: str) -> dict:
@@ -125,20 +215,42 @@ def _parse_semantic(text: str) -> dict:
         if word in text_lower:
             qualitative.append(word)
     behaviors = []
-    for b in ["failed login", "authentication", "outbound", "connection", "process", "file write", "lateral movement", "privilege escalation"]:
+    for b in [
+        "failed login", "failed sign", "authentication", "activity",
+        "outbound", "connection", "process", "file write",
+        "lateral movement", "privilege escalation",
+        "credential dump", "encoded command", "powershell",
+    ]:
         if b in text_lower:
             behaviors.append(b)
+    # Broad entity inventory intents — regex patterns to emit stable behavior labels
+    _inv_patterns = [
+        (r'\ball\s+(?:the\s+)?(?:users?|accounts?)\b|\blist\s+(?:all\s+)?(?:users?|accounts?)\b|\buser\s+inventor', 'user_inventory'),
+        (r'\bactive\s+users?\b|\busers?\s+seen\b|\brecent\s+users?\b|\bsign.?in\s+summary\b', 'observed_users'),
+        (r'\ball\s+(?:the\s+)?(?:hosts?|machines?|endpoints?)\b|\blist\s+(?:all\s+)?(?:hosts?|machines?)\b|\bhost\s+inventor', 'host_inventory'),
+        (r'\ball\s+(?:the\s+)?ips?\b|\blist\s+(?:all\s+)?ips?\b|\bip\s+inventor|\bobserved\s+ips?\b', 'ip_inventory'),
+        (r'\ball\s+(?:the\s+)?processes?\b|\blist\s+(?:all\s+)?processes?\b|\bprocess\s+inventor|\bobserved\s+processes?\b', 'process_inventory'),
+    ]
+    for pattern, label in _inv_patterns:
+        if re.search(pattern, text_lower) and label not in behaviors:
+            behaviors.append(label)
     if "6 hours" in text_lower or "6h" in text_lower:
         time_rel = "last 6 hours"
-    elif "24 hours" in text_lower or "today" in text_lower:
-        time_rel = "last 24 hours"
-    elif "week" in text_lower:
+        kql_ago = "ago(6h)"
+    elif "7 days" in text_lower or "week" in text_lower:
         time_rel = "last 7 days"
+        kql_ago = "ago(7d)"
+    elif "3 days" in text_lower:
+        time_rel = "last 3 days"
+        kql_ago = "ago(3d)"
     else:
         time_rel = "last 24 hours"
+        kql_ago = "ago(24h)"
+    # Entity extraction — now populated (was always [])
+    entities = _extract_entities_from_text(text)
     return {
-        "time_range": {"raw": None, "relative": time_rel, "is_relative": True},
-        "entities": [],
+        "time_range": {"raw": None, "relative": time_rel, "is_relative": True, "kql_ago": kql_ago},
+        "entities": entities,
         "behaviors": behaviors or ["event"],
         "qualitative_descriptors": qualitative,
         "data_sources": ["security logs"],
@@ -147,44 +259,232 @@ def _parse_semantic(text: str) -> dict:
 
 
 def _build_kql_from_intent(text: str) -> dict:
-    """Build KQL when the input is parsed intent (from stage 3 context)."""
-    text_lower = text.lower()
-    # Look for clues in the behaviors/entities sections of the parsed intent
-    if "failed login" in text_lower or "signinlogs" in text_lower or "authentication" in text_lower:
-        kql = """SigninLogs
-| where TimeGenerated > ago(6h)
-| where ResultType != 0
-| where CountryOrRegion !in (dynamic(["US", "CA", "GB"]))
-| summarize FailedAttempts = count(), Countries = make_set(CountryOrRegion), IPs = make_set(IPAddress) by UserPrincipalName
-| where FailedAttempts > 5
-| order by FailedAttempts desc"""
+    """Build entity-grounded KQL from stage 3 context (parsed intent + resolved descriptors).
+
+    Extracts entities and time range from the stage 3 message, then routes to the
+    appropriate table and injects scoped filters so the KQL is intent-correct.
+    """
+    tl = text.lower()
+
+    # ── Entity extraction ──────────────────────────────────────────────────────
+    entities = _extract_entities_from_stage3(text)
+    users    = [e['value'] for e in entities if e['type'] == 'user']
+    hosts    = [e['value'] for e in entities if e['type'] == 'host']
+    ips      = [e['value'] for e in entities if e['type'] == 'ip']
+
+    # ── Time range ────────────────────────────────────────────────────────────
+    tf = _extract_time_filter_from_stage3(text)
+
+    # ── Helper: build optional where clauses ──────────────────────────────────
+    def user_clause(field: str, value: str) -> str:
+        if '@' in value:
+            return f'\n| where {field} =~ "{value}"'
+        return f'\n| where {field} has "{value}"'
+
+    def host_clause(field: str, value: str) -> str:
+        return f'\n| where {field} =~ "{value}"'
+
+    def ip_clause(field: str, value: str) -> str:
+        return f'\n| where {field} == "{value}"'
+
+    # ── Broad entity inventory intents (run BEFORE entity-specific routing) ────
+    # These are triggered by behavior labels injected by _parse_semantic().
+
+    # P. Identity inventory — "show me all users", "list all accounts"
+    if 'user_inventory' in tl:
+        kql = """IdentityInfo
+| project AccountUPN, AccountName, Department, JobTitle, AssignedRoles, RiskLevel, IsEnabled
+| order by AccountUPN asc"""
+        return {"kql": kql, "table": "IdentityInfo"}
+
+    # Q. Observed / active users — "active users", "users seen in logs"
+    if 'observed_users' in tl:
+        kql = f"""SigninLogs
+| where {tf}
+| summarize LastSeen=max(TimeGenerated), SignInEvents=count(), FailedSignIns=countif(ResultType != 0), IPs=make_set(IPAddress, 5), Locations=make_set(Location, 5) by UserPrincipalName
+| order by LastSeen desc"""
         return {"kql": kql, "table": "SigninLogs"}
-    elif "lateral" in text_lower:
-        kql = """SecurityEvent
-| where TimeGenerated > ago(24h)
-| where EventID in (4624, 4648)
+
+    # R. Host inventory — "show me all hosts", "list all machines", "all endpoints"
+    if 'host_inventory' in tl:
+        kql = f"""SecurityEvent
+| where {tf}
+| where isnotempty(Computer)
+| summarize LastSeen=max(TimeGenerated), Events=count(), UniqueUsers=dcount(Account) by Computer
+| order by Events desc"""
+        return {"kql": kql, "table": "SecurityEvent"}
+
+    # S. IP inventory — "show me all IPs", "IPs seen"
+    if 'ip_inventory' in tl:
+        kql = f"""DeviceNetworkEvents
+| where {tf}
+| where RemoteIPType == "Public"
+| summarize Connections=count(), Hosts=make_set(DeviceName, 5), FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated) by RemoteIP
+| order by Connections desc"""
+        return {"kql": kql, "table": "DeviceNetworkEvents"}
+
+    # T. Process inventory — "show me all processes", "list processes seen"
+    if 'process_inventory' in tl:
+        kql = f"""DeviceProcessEvents
+| where {tf}
+| summarize Executions=count(), Hosts=make_set(DeviceName, 5), Users=make_set(AccountName, 5), FirstSeen=min(TimeGenerated) by FileName
+| order by Executions desc"""
+        return {"kql": kql, "table": "DeviceProcessEvents"}
+
+    # ── Intent routing (most-specific first) ──────────────────────────────────
+
+    # A. Credential dump / LSASS
+    if 'credential' in tl or 'lsass' in tl or 'credential dump' in tl:
+        kql = f"""DeviceEvents
+| where {tf}
+| where ActionType == "CreateRemoteThreadApiCall"
+| where FileName =~ "lsass.exe"
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "SenseIR.exe", "csrss.exe")
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, InitiatingProcessAccountName, FileName
+| order by TimeGenerated desc"""
+        return {"kql": kql, "table": "DeviceEvents"}
+
+    # B. Failed logins (SigninLogs)
+    if 'failed login' in tl or 'failed sign' in tl or ('signin' in tl and ('fail' in tl or 'result' in tl)):
+        u_f = user_clause('UserPrincipalName', users[0]) if users else ''
+        i_f = ip_clause('IPAddress', ips[0]) if ips else ''
+        kql = f"""SigninLogs
+| where {tf}
+| where ResultType != 0{u_f}{i_f}
+| project TimeGenerated, UserPrincipalName, IPAddress, Location, ResultType, AppDisplayName
+| order by TimeGenerated desc
+| limit 100"""
+        return {"kql": kql, "table": "SigninLogs"}
+
+    # C. PowerShell / encoded commands
+    if 'powershell' in tl or 'encoded command' in tl or 'base64' in tl or 'encodedcommand' in tl:
+        u_f = f'\n| where AccountName has "{users[0]}"' if users else ''
+        h_f = host_clause('DeviceName', hosts[0]) if hosts else ''
+        kql = f"""DeviceProcessEvents
+| where {tf}
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has "-EncodedCommand"{u_f}{h_f}
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine, SHA256
+| order by TimeGenerated desc
+| limit 100"""
+        return {"kql": kql, "table": "DeviceProcessEvents"}
+
+    # D. Privilege escalation / local admin creation
+    if 'privilege' in tl or 'escalation' in tl or 'local admin' in tl or '4720' in tl or '4728' in tl:
+        h_f = host_clause('Computer', hosts[0]) if hosts else ''
+        u_f = f'\n| where TargetUserName has "{users[0]}" or SubjectUserName has "{users[0]}"' if users else ''
+        kql = f"""SecurityEvent
+| where {tf}
+| where EventID in (4720, 4728, 4672, 4673){h_f}{u_f}
+| project TimeGenerated, Computer, EventID, TargetUserName, SubjectUserName, Activity
+| order by TimeGenerated desc
+| limit 100"""
+        return {"kql": kql, "table": "SecurityEvent"}
+
+    # E. Lateral movement
+    if 'lateral' in tl:
+        u_f = f'\n| where Account has "{users[0]}"' if users else ''
+        h_f = host_clause('Computer', hosts[0]) if hosts else ''
+        kql = f"""SecurityEvent
+| where {tf}
+| where EventID in (4624, 4648){u_f}{h_f}
 | where LogonType in (3, 10)
 | summarize Targets = dcount(Computer), TargetList = make_set(Computer) by Account, IpAddress
-| where Targets > 3
+| where Targets > 2
 | order by Targets desc"""
         return {"kql": kql, "table": "SecurityEvent"}
-    elif "network" in text_lower or "outbound" in text_lower or "connection" in text_lower:
-        kql = """DeviceNetworkEvents
-| where TimeGenerated > ago(24h)
+
+    # F. Network / outbound / connection
+    if 'outbound' in tl or 'network' in tl or 'connection' in tl:
+        h_f = host_clause('DeviceName', hosts[0]) if hosts else ''
+        i_f = ip_clause('RemoteIP', ips[0]) if ips else ''
+        if ips:
+            kql = f"""DeviceNetworkEvents
+| where {tf}
+| where RemoteIP == "{ips[0]}"{h_f}
+| project TimeGenerated, DeviceName, RemoteIP, RemotePort, Protocol, BytesSent, ActionType
+| order by TimeGenerated desc
+| limit 100"""
+        else:
+            kql = f"""DeviceNetworkEvents
+| where {tf}
 | where ActionType == "ConnectionSuccess"
-| where RemoteIPType == "Public"
+| where RemoteIPType == "Public"{h_f}
 | where RemotePort !in (80, 443, 53, 123)
-| summarize Connections = count(), Bytes = sum(AdditionalFields.BytesSent) by DeviceName
+| summarize Connections = count(), Bytes = sum(AdditionalFields.BytesSent), Destinations = dcount(RemoteIP) by DeviceName
 | order by Bytes desc"""
         return {"kql": kql, "table": "DeviceNetworkEvents"}
-    else:
-        kql = """SecurityEvent
-| where TimeGenerated > ago(24h)
-| where EventID in (4624, 4625, 4648)
+
+    # G. IP-only activity (no user/host, IP is primary entity)
+    if ips and not users and not hosts:
+        kql = f"""DeviceNetworkEvents
+| where {tf}
+| where RemoteIP == "{ips[0]}"
+| project TimeGenerated, DeviceName, RemoteIP, RemotePort, Protocol, BytesSent, ActionType
+| order by TimeGenerated desc
+| limit 100"""
+        return {"kql": kql, "table": "DeviceNetworkEvents"}
+
+    # H. User-host relationship / "what machines did X touch"
+    if any(w in tl for w in ['machine', 'what host', 'which host', 'logon', 'logged into', 'logged in', 'what machines']):
+        if users:
+            u = users[0]
+            kql = f"""DeviceLogonEvents
+| where {tf}
+| where AccountName =~ "{u}"
+| summarize LogonCount = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by DeviceName, AccountName, LogonType
+| order by LogonCount desc"""
+        else:
+            kql = f"""DeviceLogonEvents
+| where {tf}
+| where LogonType in (2, 3, 10)
+| where isnotempty(AccountName) and isnotempty(DeviceName)
+| summarize LogonCount = count(), UniqueUsers = dcount(AccountName), Users = make_set(AccountName) by DeviceName
+| order by UniqueUsers desc"""
+        return {"kql": kql, "table": "DeviceLogonEvents"}
+
+    # I. User activity (user entity present, generic intent)
+    if users:
+        u = users[0]
+        if '@' in u:
+            # Email → AAD identity → SigninLogs
+            kql = f"""SigninLogs
+| where {tf}
+| where UserPrincipalName =~ "{u}"
+| project TimeGenerated, UserPrincipalName, IPAddress, Location, AppDisplayName, ResultType
+| order by TimeGenerated desc
+| limit 100"""
+            return {"kql": kql, "table": "SigninLogs"}
+        else:
+            # Short username → broad Windows security events
+            kql = f"""SecurityEvent
+| where {tf}
+| where Account has "{u}"
+| project TimeGenerated, Computer, Account, Activity, EventID
+| order by TimeGenerated desc
+| limit 100"""
+            return {"kql": kql, "table": "SecurityEvent"}
+
+    # J. Host activity (host entity present, generic intent)
+    if hosts:
+        h = hosts[0]
+        kql = f"""SecurityEvent
+| where {tf}
+| where Computer =~ "{h}"
 | project TimeGenerated, Computer, Account, Activity, EventID
 | order by TimeGenerated desc
 | limit 100"""
         return {"kql": kql, "table": "SecurityEvent"}
+
+    # K. Default — broad user-host activity
+    kql = f"""SecurityEvent
+| where {tf}
+| where EventID in (4624, 4625, 4648)
+| where isnotempty(Account) and isnotempty(Computer)
+| project TimeGenerated, Account, Computer, EventID, Activity
+| order by TimeGenerated desc
+| limit 100"""
+    return {"kql": kql, "table": "SecurityEvent"}
 
 
 def _explain_kql(kql_text: str) -> dict:
@@ -228,16 +528,96 @@ def _explain_kql(kql_text: str) -> dict:
         elif "limit" in line.lower() or "top " in line.lower():
             clauses.append({"clause": line, "plain_english": "Cap result count to avoid overwhelming the analyst"})
 
-    # Build a concise summary
-    if "signinlogs" in kql_lower:
-        summary = "Finds failed sign-in attempts from unusual geolocations, grouped by user to surface the highest-risk accounts."
-        assumptions = ["Country exclusion list (US/CA/GB) is a placeholder — replace with your org's geo baseline", "FailedAttempts threshold of 5 is tunable per environment"]
+    # ── Entity scope detection for better summaries ───────────────────────────
+    def _ent_scope(kql: str) -> tuple[str | None, str | None]:
+        """Return (entity_label, entity_value) for the primary scoped entity."""
+        for pattern, label in [
+            (r'UserPrincipalName\s*=~\s*"([^"]+)"', 'user'),
+            (r'UserPrincipalName\s+has\s+"([^"]+)"', 'user'),
+            (r'Account\s+has\s+"([^"]+)"', 'user'),
+            (r'AccountName\s+has\s+"([^"]+)"', 'user'),
+            (r'AccountName\s*=~\s*"([^"]+)"', 'user'),
+            (r'Computer\s*=~\s*"([^"]+)"', 'host'),
+            (r'DeviceName\s*=~\s*"([^"]+)"', 'host'),
+            (r'RemoteIP\s*==\s*"([^"]+)"', 'IP'),
+            (r'IPAddress\s*==\s*"([^"]+)"', 'IP'),
+        ]:
+            m = re.search(pattern, kql, re.I)
+            if m:
+                return label, m.group(1)
+        return None, None
+
+    scope_label, scope_value = _ent_scope(kql_text)
+    scope_note = f"Scoped to {scope_label} '{scope_value}'." if scope_label else ""
+
+    # ── Build a concise summary ───────────────────────────────────────────────
+    if "identityinfo" in kql_lower:
+        summary = "User and identity inventory from IdentityInfo. Shows all known user accounts with role, department, and risk level."
+        assumptions = ["Mock mode: deterministic fixture users — jsmith, mwatson, jdoe, tbrown, lgarcia"]
+    elif "signinlogs" in kql_lower:
+        if "summarize" in kql_lower and "lastseen" in kql_lower and "signinevents" in kql_lower:
+            summary = "Summary of sign-in activity per user. Shows last seen time, event count, failed sign-in attempts, and source IPs."
+            assumptions = ["Mock mode: deterministic fixture sign-in summary data"]
+        elif scope_label == 'user':
+            summary = f"Sign-in activity for {scope_value}. Shows authentication events, source IP, location, and app. {scope_note}"
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        elif "resulttype" in kql_lower:
+            summary = "Finds failed sign-in attempts from unusual geolocations, grouped by user to surface the highest-risk accounts."
+            assumptions = ["Country exclusion list (US/CA/GB) is a placeholder — replace with your org's geo baseline"]
+        else:
+            summary = f"Sign-in events from Azure AD. {scope_note}".strip()
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."] if scope_label else ["Country exclusion list (US/CA/GB) is a placeholder — replace with your org's geo baseline"]
+    elif "devicenetworkevents" in kql_lower:
+        if "summarize" in kql_lower and "connections" in kql_lower and scope_label is None:
+            summary = "IP address inventory from network connection logs. Shows all observed public IP addresses with connection counts and source hosts."
+            assumptions = ["Mock mode: deterministic fixture public IPs — RemoteIPType == 'Public' filter applied"]
+        elif scope_label == 'IP':
+            summary = f"All network connections to/from {scope_value}. Shows device, port, protocol, and data volume."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        elif scope_label == 'host':
+            summary = f"Outbound network connections from {scope_value}. Surfaces unusual traffic by port, IP, and data volume."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        else:
+            summary = "Surfaces devices with high-volume or unusual outbound connections that may indicate C2 or data exfiltration."
+            assumptions = ["10MB byte threshold and port exclusion list should be tuned per environment"]
+    elif "deviceprocessevents" in kql_lower:
+        if "summarize" in kql_lower and "executions" in kql_lower and scope_label is None:
+            summary = "Process inventory from endpoint telemetry. Shows all observed process names with execution counts, hosts, and users."
+            assumptions = ["Mock mode: deterministic fixture process inventory — top processes by execution count"]
+        elif scope_label == 'user':
+            summary = f"Process execution events for user {scope_value}. Highlights encoded PowerShell and suspicious command lines."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        elif scope_label == 'host':
+            summary = f"Process execution events on host {scope_value}. Highlights encoded PowerShell and suspicious command lines."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        else:
+            summary = "Finds PowerShell executions with Base64-encoded commands, highlighting those spawned from suspicious parent processes."
+            assumptions = ["Minimum encoded string length of 20 chars; tune upward to reduce noise from short legitimate encoded args"]
+    elif "devicelogonevents" in kql_lower:
+        if scope_label == 'user':
+            summary = f"Machines accessed by {scope_value} — shows logon count, logon type, and time range per device."
+        else:
+            summary = "Device logon summary showing which machines had the most distinct users — useful for detecting shared or compromised accounts."
+        assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."] if scope_label else ["Covers Defender for Endpoint enrolled devices only"]
     elif "lateral" in kql_lower or ("securityevent" in kql_lower and "logontype" in kql_lower):
         summary = "Identifies accounts authenticating to an unusual number of systems — a key lateral movement indicator."
         assumptions = ["Threshold of 3 distinct target systems is a starting point — tune to your org's norm"]
-    elif "devicenetworkevents" in kql_lower:
-        summary = "Surfaces devices with high-volume or unusual outbound network connections that may indicate C2 or data exfiltration."
-        assumptions = ["10MB byte threshold and port exclusion list should be tuned per environment"]
+    elif "securityevent" in kql_lower or table_line.lower() == "securityevent":
+        if "summarize" in kql_lower and "uniqueusers" in kql_lower and scope_label is None:
+            summary = "Host inventory based on recent Windows security events. Shows all active endpoints with event counts and unique user counts."
+            assumptions = ["Mock mode: deterministic fixture hosts ordered by event volume"]
+        elif scope_label == 'user':
+            summary = f"All Windows security events for user '{scope_value}' in the requested time window. Covers logons, process creation, privilege use, and account changes."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        elif scope_label == 'host':
+            summary = f"All Windows security events on host '{scope_value}' in the requested time window. Covers logons, process creation, privilege use, and account changes."
+            assumptions = ["Mock mode: deterministic fixture data scoped to the requested entity."]
+        elif "4720" in kql_lower or "4728" in kql_lower:
+            summary = "Detects local admin account creation and group membership changes — common persistence and privilege escalation techniques."
+            assumptions = []
+        else:
+            summary = "Queries Windows security events matching the specified criteria and returns the most recent results."
+            assumptions = []
     else:
         summary = "Queries security events matching the specified criteria and returns the most recent results."
         assumptions = []
@@ -469,6 +849,72 @@ def _build_kql(text: str) -> dict:
             {"clause": "where PrivilegeList has_any ...", "plain_english": "Only the highest-risk privileges that are commonly abused for escalation"},
         ]
         assumptions = ["Privilege list covers the top abuse targets — add tenant-specific sensitive groups as needed"]
+    elif "powershell" in text_lower or "encoded command" in text_lower or "base64" in text_lower:
+        kql = f"""DeviceProcessEvents
+| where {time_filter}
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine matches regex "(?i)-(e|enc|encodedcommand)\\\\s+[A-Za-z0-9+/=]{{20,}}"
+| extend ParentProcess = InitiatingProcessFileName
+| extend IsSuspiciousParent = ParentProcess in~ ("services.exe","svchost.exe","winword.exe","excel.exe","outlook.exe","mshta.exe","wscript.exe")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, ParentProcess, IsSuspiciousParent
+| order by TimeGenerated desc"""
+        summary = "Finds PowerShell executions with Base64-encoded commands, highlighting those spawned from suspicious parent processes."
+        clauses = [
+            {"clause": "DeviceProcessEvents", "plain_english": "Defender for Endpoint process event table"},
+            {"clause": f"where {time_filter}", "plain_english": "Restrict to the requested time window"},
+            {"clause": "where FileName =~ 'powershell.exe'", "plain_english": "Filter to PowerShell process launches only"},
+            {"clause": "matches regex -(e|enc|encodedcommand)...", "plain_english": "Detect encoded command-line arguments — a common obfuscation technique"},
+            {"clause": "IsSuspiciousParent", "plain_english": "Flag instances where PowerShell was spawned by Office apps, scripting engines, or service hosts — high-confidence indicators"},
+        ]
+        assumptions = ["Minimum encoded string length of 20 chars; tune upward to reduce noise from short legitimate encoded args"]
+    elif any(w in text_lower for w in ["what machines", "which hosts", "hosts did", "what hosts", "machines did", "jsmith", "user touch", "users and hosts", "host entities", "user entities", "users logged into", "who logged into", "logged in to"]):
+        # Extract entity hint if present
+        entity_hint = ""
+        for name in ["jsmith", "alee", "bwong", "admin", "administrator"]:
+            if name in text_lower:
+                entity_hint = name
+                break
+        if entity_hint:
+            kql = f"""DeviceLogonEvents
+| where {time_filter}
+| where AccountName =~ "{entity_hint}"
+| summarize LogonCount = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by DeviceName, AccountName, LogonType
+| order by LogonCount desc"""
+            summary = f"Lists all machines that the account '{entity_hint}' authenticated to in the specified window — useful for lateral movement and scope analysis."
+            clauses = [
+                {"clause": "DeviceLogonEvents", "plain_english": "Defender for Endpoint logon event table"},
+                {"clause": f"where AccountName =~ '{entity_hint}'", "plain_english": f"Filter to the specific user account: {entity_hint}"},
+                {"clause": "summarize ... by DeviceName, AccountName, LogonType", "plain_english": "Aggregate logon count and time range per device to show scope of access"},
+            ]
+        else:
+            kql = f"""DeviceLogonEvents
+| where {time_filter}
+| where LogonType in (2, 3, 10)
+| summarize LogonCount = count(), UniqueUsers = dcount(AccountName), Users = make_set(AccountName) by DeviceName
+| order by UniqueUsers desc"""
+            summary = "Lists devices and the distinct users who logged into them — useful for finding shared access or unusual host activity."
+            clauses = [
+                {"clause": "DeviceLogonEvents", "plain_english": "Defender for Endpoint logon event table"},
+                {"clause": "where LogonType in (2, 3, 10)", "plain_english": "Interactive, network, and remote interactive logons"},
+                {"clause": "summarize ... by DeviceName", "plain_english": "Count unique users per device to surface hosts with unusual access breadth"},
+            ]
+        assumptions = ["Covers Defender for Endpoint enrolled devices only — domain controller events may need SecurityEvent table for full coverage"]
+    elif "credential" in text_lower or "lsass" in text_lower or "credential dump" in text_lower:
+        kql = f"""DeviceEvents
+| where {time_filter}
+| where ActionType == "CreateRemoteThreadApiCall"
+| where FileName =~ "lsass.exe"
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "SenseIR.exe", "csrss.exe")
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, InitiatingProcessAccountName, FileName
+| order by TimeGenerated desc"""
+        summary = "Detects remote thread injection into LSASS — the primary mechanism used by credential dumping tools like Mimikatz."
+        clauses = [
+            {"clause": "DeviceEvents", "plain_english": "Defender for Endpoint behavioral events table"},
+            {"clause": "where ActionType == 'CreateRemoteThreadApiCall'", "plain_english": "Remote thread creation — the injection primitive used by credential dumpers"},
+            {"clause": "where FileName =~ 'lsass.exe'", "plain_english": "Target is LSASS, the Windows process that stores cached credentials"},
+            {"clause": "where InitiatingProcessFileName !in~...", "plain_english": "Exclude known-good security tools (Windows Defender, Sense) that legitimately access LSASS"},
+        ]
+        assumptions = ["Allowlist is a baseline — add your EDR and AV product process names to avoid false positives"]
     else:
         kql = f"""SecurityEvent
 | where {time_filter}

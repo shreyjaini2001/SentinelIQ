@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../../stores/investigationStore'
 
@@ -61,8 +62,9 @@ function NavBtn({ item, active, onClick }: { item: NavItem; active: boolean; onC
 }
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
-  const { investigations, activeInvestigationId } = useInvestigationStore()
+  const { investigations, activeInvestigationId, openInvestigation, closeActiveInvestigation } = useInvestigationStore()
   const activeInv = investigations.find((i) => i.id === activeInvestigationId)
+  const [showCaseSelector, setShowCaseSelector] = useState(false)
 
   // Investigations nav item is highlighted when on either the list or the workspace
   const isInvActive =
@@ -71,29 +73,90 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <div className="flex flex-col h-full pt-3 pb-3">
 
-      {/* Active investigation context card */}
-      {activeInv && (
-        <div className="px-2 mb-3">
-          <button
-            onClick={() => onNavigate('investigation-workspace')}
-            className={clsx(
-              'w-full text-left rounded-lg border px-3 py-2.5 transition-all',
-              currentPage === 'investigation-workspace'
-                ? 'border-blue-500/30 bg-blue-500/10'
-                : 'border-gray-700/50 bg-gray-900/40 hover:border-gray-600/60',
-            )}
-          >
-            <div className="flex items-center gap-1.5 mb-1">
+      {/* Active case card with change/clear controls */}
+      <div className="px-2 mb-3">
+        {activeInv ? (
+          <div className={clsx(
+            'rounded-lg border transition-all',
+            currentPage === 'investigation-workspace'
+              ? 'border-blue-500/30 bg-blue-500/10'
+              : 'border-gray-700/50 bg-gray-900/40',
+          )}>
+            {/* Case header row */}
+            <div className="flex items-center gap-1 px-3 pt-2.5 pb-1">
               <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', SEV_DOT[activeInv.severity])} />
-              <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest">Active Case</span>
+              <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest flex-1">Active Case</span>
+              {/* Change button */}
+              <button
+                onClick={() => setShowCaseSelector((v) => !v)}
+                title="Switch case"
+                className="text-[9px] text-gray-600 hover:text-gray-400 px-1 transition-colors"
+              >
+                {showCaseSelector ? '▲' : '▼'}
+              </button>
+              {/* Clear / scratch mode button */}
+              <button
+                onClick={() => { closeActiveInvestigation(); setShowCaseSelector(false) }}
+                title="Clear active case (scratch mode)"
+                className="text-[9px] text-gray-600 hover:text-red-400 px-1 transition-colors leading-none"
+              >
+                ×
+              </button>
             </div>
-            <p className="text-[11px] text-gray-200 font-medium truncate leading-snug">{activeInv.title}</p>
-            <p className="text-[10px] text-gray-600 mt-0.5">
-              {activeInv.turns.length} turns · {activeInv.artifacts.length} artifacts
-            </p>
-          </button>
-        </div>
-      )}
+            {/* Case title — click to go to workspace */}
+            <button
+              onClick={() => { setShowCaseSelector(false); onNavigate('investigation-workspace') }}
+              className="w-full text-left px-3 pb-2.5"
+            >
+              <p className="text-[11px] text-gray-200 font-medium truncate leading-snug">{activeInv.title}</p>
+              <p className="text-[10px] text-gray-600 mt-0.5">
+                {activeInv.turns.length} turns · {activeInv.artifacts.length} artifacts
+              </p>
+            </button>
+            {/* Case switcher dropdown */}
+            {showCaseSelector && investigations.length > 0 && (
+              <div className="border-t border-gray-700/50 px-2 py-1.5 space-y-0.5 max-h-36 overflow-y-auto">
+                {investigations.map((inv) => (
+                  <button
+                    key={inv.id}
+                    onClick={() => { openInvestigation(inv.id); setShowCaseSelector(false) }}
+                    className={clsx(
+                      'w-full text-left px-2 py-1 rounded text-[10px] transition-colors truncate',
+                      inv.id === activeInvestigationId
+                        ? 'text-blue-300 bg-blue-500/10'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50',
+                    )}
+                  >
+                    {inv.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Scratch mode — no active case */
+          <div className="rounded-lg border border-gray-700/30 bg-gray-900/20 px-3 py-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
+              <span className="text-[9px] font-mono text-gray-700 uppercase tracking-widest">Scratch Mode</span>
+            </div>
+            {investigations.length > 0 ? (
+              <select
+                className="w-full text-[10px] bg-gray-900 border border-gray-700/50 text-gray-400 rounded px-1 py-0.5 mt-0.5"
+                defaultValue=""
+                onChange={(e) => { if (e.target.value) openInvestigation(e.target.value) }}
+              >
+                <option value="">Open a case...</option>
+                {investigations.map((inv) => (
+                  <option key={inv.id} value={inv.id}>{inv.title}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-[10px] text-gray-700">No cases yet</p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex-1 px-2 space-y-0.5">
         {NAV_MAIN.map((item) => {

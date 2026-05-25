@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import type { QueryResult } from '../../types'
 import { generateMockResults } from '../../utils/mockResults'
-import type { MockQueryResult } from '../../utils/mockResults'
+import type { MockQueryResult, ExtractedEntity } from '../../utils/mockResults'
+import { parseKqlScope } from '../../utils/queryPlanner'
 import { QueryResultTable } from '../query/QueryResultTable'
 import { EntityChips } from '../query/EntityChips'
 import { useInvestigationStore } from '../../stores/investigationStore'
-import { useSessionStore } from '../../stores/sessionStore'
+import { submitCommand } from '../../utils/commandRunner'
 
 // Reset global-flag regexes per call by recreating them
 function highlightKql(kql: string): string {
@@ -37,7 +38,6 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   const [runResults, setRunResults]     = useState<MockQueryResult | null>(null)
 
   const { activeInvestigationId, addArtifact } = useInvestigationStore()
-  const { setPendingQuery } = useSessionStore()
 
   // activeKql: what the card currently represents
   const activeKql = isEditing ? editedKql : committedKql
@@ -87,11 +87,19 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
     setTimeout(() => setSavedResult(false), 2000)
   }
 
-  const handleEntityClick = (entity: { value: string }) => {
-    setPendingQuery(`Show me all activity for ${entity.value} in the last 24 hours`)
+  const handleEntityClick = (entity: ExtractedEntity) => {
+    const label = entity.type === 'user' ? 'user'
+      : entity.type === 'host' ? 'host'
+      : entity.type === 'ip' ? 'IP'
+      : entity.type
+    void submitCommand(
+      `Show all activity for ${label} ${entity.value} in the last 24 hours`,
+      { source: 'entity_chip' },
+    )
   }
 
   const btnBase = 'text-xs text-gray-400 hover:text-gray-200 transition-colors px-2 py-1 rounded hover:bg-gray-700/60'
+  const scope = parseKqlScope(committedKql)
 
   return (
     <div data-testid="query-preview-card" className="rounded-xl border border-gray-700/60 bg-gray-900/70 backdrop-blur overflow-hidden">
@@ -169,6 +177,38 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
         </div>
       )}
 
+      {/* Scope strip — shows interpreted intent + entity filter */}
+      {!isEditing && (
+        <div className="px-4 py-1.5 border-b border-gray-700/40 bg-gray-950/30 flex items-center gap-2 flex-wrap">
+          <span className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest shrink-0">Interpreted as</span>
+          <span className="text-[10px] text-gray-400">{scope.intent}</span>
+          {scope.isScoped && scope.entityValue && (
+            <>
+              <span className="text-gray-700 text-[10px]">·</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                scope.entityType === 'user' ? 'bg-blue-500/15 border-blue-500/25 text-blue-300' :
+                scope.entityType === 'host' ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300' :
+                'bg-amber-500/15 border-amber-500/25 text-amber-300'
+              }`}>
+                {scope.entityType}: {scope.entityValue}
+              </span>
+            </>
+          )}
+          {scope.scopeLabel && !scope.entityValue && (
+            <>
+              <span className="text-gray-700 text-[10px]">·</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono border bg-purple-500/15 border-purple-500/25 text-purple-300">
+                {scope.scopeLabel}
+              </span>
+            </>
+          )}
+          <span className="text-gray-700 text-[10px]">·</span>
+          <span className="text-[10px] text-gray-600 font-mono">{scope.table}</span>
+          <span className="text-gray-700 text-[10px]">·</span>
+          <span className="text-[10px] text-gray-600">{scope.timeAgo === 'N/A' ? 'no time filter' : `last ${scope.timeAgo}`}</span>
+        </div>
+      )}
+
       {/* Run results */}
       {runResults && (
         <div className="border-t border-gray-700/50 px-4 py-3 space-y-4">
@@ -237,6 +277,9 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
                 </ul>
               </div>
             )}
+            <div className="mt-2 p-2 rounded bg-gray-800/60 border border-gray-700/40">
+              <p className="text-[10px] text-gray-500">Mock mode — deterministic fixture data.{scope.scopeLabel ? ` Scope: ${scope.scopeLabel}.` : scope.isScoped ? ' Scoped to the requested entity.' : ' Structurally representative.'} Results will vary in a live Sentinel workspace.</p>
+            </div>
           </div>
         )}
       </div>

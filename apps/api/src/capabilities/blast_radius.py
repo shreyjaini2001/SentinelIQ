@@ -30,6 +30,28 @@ class BlastRadiusResult(BaseModel):
     duration_ms: int
 
 
+_FALLBACK_USERS = [
+    {"user_id": "USR-001", "upn": "jsmith@corp.com", "display_name": "John Smith", "risk_score": 82},
+    {"user_id": "USR-002", "upn": "alee@corp.com", "display_name": "Alice Lee", "risk_score": 45},
+    {"user_id": "USR-003", "upn": "bwong@corp.com", "display_name": "Brian Wong", "risk_score": 30},
+]
+_FALLBACK_HOSTS = [
+    {"device_name": "DESKTOP-42", "ip_address": "10.0.1.42", "risk_score": 75, "owner_upn": "jsmith@corp.com"},
+    {"device_name": "SRVDC-01", "ip_address": "10.0.0.5", "risk_score": 90, "owner_upn": ""},
+]
+_FALLBACK_IAM: dict = {
+    "groups": [
+        {"id": "GRP-001", "name": "Domain Admin", "members": ["USR-001"]},
+        {"id": "GRP-002", "name": "Standard Users", "members": ["USR-001", "USR-002", "USR-003"]},
+        {"id": "GRP-004", "name": "Server Operators", "members": ["USR-001"]},
+    ],
+    "roles": [
+        {"id": "ROLE-001", "name": "Global Admin", "assigned_to": ["USR-001"], "risk": "critical"},
+    ],
+    "service_principals": [],
+    "privileged_access_paths": [],
+}
+
 _RISK_WEIGHTS = {"critical": 25, "high": 12, "medium": 5, "low": 2}
 
 _RISK_FOR_GROUP = {
@@ -54,20 +76,20 @@ def _classify_host_risk(host: dict) -> str:
     return "low"
 
 
-def _resolve_seed(entity_str: str, dp) -> tuple[dict | None, str]:
+def _resolve_seed(entity_str: str, users: list[dict], hosts: list[dict]) -> tuple[dict | None, str]:
     """Return (record, entity_type) for the seed entity string."""
     entity_lower = entity_str.lower()
-    for u in dp.get_users():
+    for u in users:
         if entity_lower in (u["upn"].lower(), u["display_name"].lower(), u.get("user_id", "").lower()):
             return u, "user"
-    for h in dp.get_hosts():
+    for h in hosts:
         if entity_lower in (h["device_name"].lower(), h["ip_address"].lower()):
             return h, "host"
     # Partial match fallback
-    for u in dp.get_users():
+    for u in users:
         if entity_lower in u["upn"].lower() or entity_lower in u["display_name"].lower():
             return u, "user"
-    for h in dp.get_hosts():
+    for h in hosts:
         if entity_lower in h["device_name"].lower():
             return h, "host"
     return None, "unknown"
@@ -76,11 +98,16 @@ def _resolve_seed(entity_str: str, dp) -> tuple[dict | None, str]:
 def estimate_blast_radius(seed_entity: str) -> BlastRadiusResult:
     start = datetime.now(timezone.utc)
     dp = get_data_provider()
-    iam = dp.get_iam_graph()
-    users = dp.get_users()
-    hosts = dp.get_hosts()
+    try:
+        iam = dp.get_iam_graph()
+        users = dp.get_users()
+        hosts = dp.get_hosts()
+    except NotImplementedError:
+        iam = _FALLBACK_IAM
+        users = _FALLBACK_USERS
+        hosts = _FALLBACK_HOSTS
 
-    record, entity_type = _resolve_seed(seed_entity, dp)
+    record, entity_type = _resolve_seed(seed_entity, users, hosts)
 
     # Determine the primary user ID to traverse from
     if entity_type == "user":

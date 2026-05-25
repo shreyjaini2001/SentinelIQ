@@ -1,4 +1,4 @@
-import { useSessionStore } from '../../stores/sessionStore'
+import { submitCommand } from '../../utils/commandRunner'
 import type { MockQueryResult } from '../../utils/mockResults'
 
 interface Pivot {
@@ -67,7 +67,6 @@ interface Props {
 }
 
 export function PivotSuggestions({ result }: Props) {
-  const { setPendingQuery } = useSessionStore()
   const pivots = buildPivots(result)
 
   if (pivots.length === 0) return null
@@ -81,7 +80,7 @@ export function PivotSuggestions({ result }: Props) {
         {pivots.map((pivot) => (
           <button
             key={pivot.label}
-            onClick={() => setPendingQuery(pivot.prompt)}
+            onClick={() => void submitCommand(pivot.prompt, { source: 'pivot_chip' })}
             className={`text-[10px] px-2.5 py-1 rounded-lg border transition-colors ${pivot.color}`}
           >
             {pivot.label} →

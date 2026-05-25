@@ -5,6 +5,7 @@ import { useInvestigationStore } from '../stores/investigationStore'
 import * as api from '../api/client'
 import type { ClassifyResult, ActionProgressEvent, Mode } from '../types'
 import type { ArtifactType } from '../types/investigation'
+import { registerDispatch, registerSetText } from '../utils/commandRunner'
 
 const HANDLER_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   triage:     'alert_triage',
@@ -125,8 +126,21 @@ export function useSearchBar() {
     const submittedText = (inputText ?? text).trim()
     if (!submittedText || !sessionId) return
 
-    // Clear stale classification so the pill resets to neutral while live classify runs
+    // Diagnostic: log if a concurrent run is already in flight.
+    // We do NOT silently block — an explicit submitCommand call always proceeds,
+    // and the action token guard + abort handles stale callbacks from the old stream.
+    const { isLoading: loading, isActionRunning: running } = useSessionStore.getState()
+    if (loading || running) {
+      console.debug('[SentinelIQ] submit: pre-empting in-flight command', {
+        prompt: submittedText.slice(0, 60),
+        loading,
+        running,
+      })
+    }
+
+    // Clear stale classification and any prior error message immediately
     setClassification(null)
+    setActionProgress(null)
 
     // ── Step 1: Always re-classify the submitted text live.
     // The debounce effect may not have settled (user typed fast or used a
@@ -164,6 +178,7 @@ export function useSearchBar() {
       const token = ++actionTokenRef.current
       let streamDone = false
 
+      try {
       abortActionRef.current = api.streamAction(
         submittedText,
         sessionId,
@@ -222,6 +237,13 @@ export function useSearchBar() {
           }
         },
       )
+      } catch (setupErr) {
+        // streamAction threw synchronously (e.g. network unavailable before SSE starts)
+        if (actionTokenRef.current === token) {
+          setActionRunning(false)
+          setActionProgress(`Error: ${setupErr instanceof Error ? setupErr.message : 'Failed to start action'}`)
+        }
+      }
     } else {
       // ── Step 2b: Clear stale action state so old panels disappear
       setActionData(null)
@@ -292,6 +314,19 @@ export function useSearchBar() {
   // This lets the pendingQuery effect call submit without listing it as a
   // dependency (which would clear the timer every time text changes).
   submitRef.current = submit
+
+  // Register with the global command runner so all UI chips/buttons can dispatch
+  // commands without going through setPendingQuery → effect timing chain.
+  useEffect(() => {
+    registerDispatch((t) => submitRef.current(t))
+    registerSetText(setText)
+    return () => {
+      registerDispatch(null)
+      registerSetText(null)
+    }
+  // setText is a stable Zustand setter — run only once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Consume pendingQuery set by external callers (e.g. welcome screen buttons).
   // No timer or cleanup: setPendingQuery(null) changes the dep and would cause

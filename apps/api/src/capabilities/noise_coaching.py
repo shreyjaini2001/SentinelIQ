@@ -70,6 +70,13 @@ _RULE_FP_PROFILES: dict[str, dict] = {
 
 _DEFAULT_PROFILE = _RULE_FP_PROFILES["GeoAnomalyLogin"]
 
+# Fallback rules used when the data provider raises NotImplementedError
+_FALLBACK_RULES: list[dict] = [
+    {"rule_id": "RULE-001", "name": "GeoAnomalyLogin",   "description": "Geo-anomaly login detection", "false_positive_rate": 0.12, "technique_ids": ["T1078"]},
+    {"rule_id": "RULE-002", "name": "EncodedPowerShell", "description": "Encoded PowerShell detection", "false_positive_rate": 0.28, "technique_ids": ["T1059"]},
+    {"rule_id": "RULE-003", "name": "CredentialDumping", "description": "LSASS credential dumping",     "false_positive_rate": 0.04, "technique_ids": ["T1003"]},
+]
+
 # Rule name aliases: variant names → canonical fixture rule name
 _RULE_ALIASES: dict[str, str] = {
     "GeoAnomalyNewCountryLogin": "GeoAnomalyLogin",
@@ -126,8 +133,12 @@ async def analyze_noise(
     start = datetime.now(timezone.utc)
     dp = get_data_provider()
 
-    rules = dp.get_detection_rules()
-    alerts = dp.get_alerts(n=20)
+    try:
+        rules = dp.get_detection_rules()
+        alerts = dp.get_alerts(n=20)
+    except NotImplementedError:
+        rules = _FALLBACK_RULES
+        alerts = []
 
     # Resolve known aliases before fixture lookup
     rule_name_hint = _RULE_ALIASES.get(rule_name_hint, rule_name_hint)

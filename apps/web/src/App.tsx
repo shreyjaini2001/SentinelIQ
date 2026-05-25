@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { SearchBar } from './components/SearchBar/SearchBar'
 import { Sidebar, type PageId } from './components/AppShell/Sidebar'
 import { OverviewPage } from './pages/OverviewPage'
@@ -15,25 +15,64 @@ import { SettingsPage } from './pages/SettingsPage'
 import { useSessionStore } from './stores/sessionStore'
 
 export default function App() {
+  // Navigation history — internal stack + browser history sync
+  const navRef = useRef<{ stack: PageId[]; idx: number }>({ stack: ['overview'], idx: 0 })
   const [currentPage, setCurrentPage] = useState<PageId>('overview')
+  const [canGoBack, setCanGoBack] = useState(false)
+  const [canGoForward, setCanGoForward] = useState(false)
+
   const { actionData, logsKql, setResult, setChips } = useSessionStore()
 
-  // Auto-navigate to Overview when an AI action panel result arrives
-  useEffect(() => {
-    if (actionData) setCurrentPage('overview')
-  }, [actionData])
-
-  // Auto-navigate to Logs when a query is sent there via "Open in Logs"
-  useEffect(() => {
-    if (logsKql) setCurrentPage('logs')
-  }, [logsKql])
-
-  // Navigating clears the transient QueryPreviewCard so it doesn't float over unrelated pages
-  const handleNavigate = (page: PageId) => {
+  const navigate = (page: PageId) => {
+    const { stack, idx } = navRef.current
+    const newStack = [...stack.slice(0, idx + 1), page]
+    const newIdx = idx + 1
+    navRef.current = { stack: newStack, idx: newIdx }
     setCurrentPage(page)
+    setCanGoBack(true)
+    setCanGoForward(false)
+    history.pushState({ page, idx: newIdx }, '', `#${page}`)
     setResult(null)
     setChips([])
   }
+
+  const goBack = () => {
+    if (navRef.current.idx > 0) history.back()
+  }
+
+  const goForward = () => {
+    const { stack, idx } = navRef.current
+    if (idx < stack.length - 1) history.forward()
+  }
+
+  // Initialize browser history and listen for popstate (browser back/forward)
+  useEffect(() => {
+    history.replaceState({ page: 'overview', idx: 0 }, '', '#overview')
+
+    const handlePop = (e: PopStateEvent) => {
+      const page = (e.state?.page ?? 'overview') as PageId
+      const idx = (e.state?.idx ?? 0) as number
+      navRef.current = { ...navRef.current, idx }
+      setCurrentPage(page)
+      setCanGoBack(idx > 0)
+      setCanGoForward(idx < navRef.current.stack.length - 1)
+      setResult(null)
+      setChips([])
+    }
+
+    window.addEventListener('popstate', handlePop)
+    return () => window.removeEventListener('popstate', handlePop)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-navigate to Overview when an AI action panel result arrives
+  useEffect(() => {
+    if (actionData) navigate('overview')
+  }, [actionData]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-navigate to Logs when a query is sent there via "Open in Logs"
+  useEffect(() => {
+    if (logsKql) navigate('logs')
+  }, [logsKql]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="bg-sentinel-bg min-h-screen">
@@ -49,8 +88,28 @@ export default function App() {
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v0.6.0</span>
+              <span className="text-[10px] text-gray-600 font-mono">v0.7.6</span>
             </div>
+          </div>
+
+          {/* Back / Forward */}
+          <div className="hidden sm:flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={goBack}
+              disabled={!canGoBack}
+              title="Go back"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 disabled:opacity-25 disabled:cursor-not-allowed transition-colors text-base leading-none"
+            >
+              ←
+            </button>
+            <button
+              onClick={goForward}
+              disabled={!canGoForward}
+              title="Go forward"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 disabled:opacity-25 disabled:cursor-not-allowed transition-colors text-base leading-none"
+            >
+              →
+            </button>
           </div>
 
           {/* Global AI command bar */}
@@ -77,15 +136,15 @@ export default function App() {
 
         {/* Left navigation sidebar */}
         <aside className="w-52 shrink-0 border-r border-gray-800/60 bg-gray-950/40 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto self-start">
-          <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
+          <Sidebar currentPage={currentPage} onNavigate={navigate} />
         </aside>
 
         {/* Main content area */}
         <main className="flex-1 min-w-0 px-6 py-6">
-          {currentPage === 'overview'                && <OverviewPage onNavigate={handleNavigate} />}
+          {currentPage === 'overview'                && <OverviewPage onNavigate={navigate} />}
           {currentPage === 'alerts'                  && <AlertsPage />}
-          {currentPage === 'investigations'          && <InvestigationsPage onNavigate={handleNavigate} />}
-          {currentPage === 'investigation-workspace' && <InvestigationWorkspacePage onBack={() => handleNavigate('investigations')} />}
+          {currentPage === 'investigations'          && <InvestigationsPage onNavigate={navigate} />}
+          {currentPage === 'investigation-workspace' && <InvestigationWorkspacePage onBack={() => navigate('investigations')} />}
           {currentPage === 'logs'                    && <LogsPage />}
           {currentPage === 'hunts'                   && <HuntsPage />}
           {currentPage === 'rules'                   && <RulesPage />}

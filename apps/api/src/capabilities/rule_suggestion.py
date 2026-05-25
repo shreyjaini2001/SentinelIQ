@@ -54,7 +54,10 @@ class RuleSuggestionResult(BaseModel):
 
 
 def _find_similar_rules(technique_ids: list[str], dp) -> list[SimilarRule]:
-    all_rules = dp.get_detection_rules()
+    try:
+        all_rules = dp.get_detection_rules()
+    except NotImplementedError:
+        all_rules = []
     similar: list[SimilarRule] = []
     for r in all_rules:
         r_techs = set(r.get("technique_ids", []))
@@ -153,7 +156,10 @@ async def suggest_rule(context_text: str) -> RuleSuggestionResult:
     fp_rate = float(data.get("estimated_fp_rate", 0.1))
 
     # Build a plausible alert_count from existing rules if technique overlaps
-    existing = dp.get_detection_rules()
+    try:
+        existing = dp.get_detection_rules()
+    except NotImplementedError:
+        existing = []
     related = [r for r in existing if any(t in r.get("technique_ids", []) for t in technique_ids)]
     avg_count = int(sum(r.get("alert_count_30d", 10) for r in related) / max(len(related), 1))
     alert_count = max(5, avg_count)
