@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../stores/investigationStore'
-import { useSessionStore } from '../stores/sessionStore'
 import type { Artifact } from '../types/investigation'
+import { submitCommand } from '../utils/commandRunner'
+import { EvidenceGraph } from '../components/investigation/EvidenceGraph'
+import { EvidenceTimeline } from '../components/investigation/EvidenceTimeline'
 
-type Tab = 'overview' | 'alerts' | 'entities' | 'timeline' | 'blast-radius' | 'notes' | 'reports' | 'artifacts'
+type Tab = 'overview' | 'alerts' | 'entities' | 'evidence' | 'timeline' | 'blast-radius' | 'notes' | 'reports' | 'artifacts'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',     label: 'Overview' },
   { id: 'alerts',       label: 'Alerts' },
   { id: 'entities',     label: 'Entities' },
+  { id: 'evidence',     label: 'Evidence' },
   { id: 'timeline',     label: 'Timeline' },
   { id: 'blast-radius', label: 'Blast Radius' },
   { id: 'notes',        label: 'Notes' },
@@ -45,7 +48,6 @@ function fmtTs(iso: string) {
 
 function OverviewTab({ invId }: { invId: string }) {
   const { investigations } = useInvestigationStore()
-  const { setPendingQuery } = useSessionStore()
   const inv = investigations.find((i) => i.id === invId)!
 
   return (
@@ -111,7 +113,7 @@ function OverviewTab({ invId }: { invId: string }) {
           ].map((prompt) => (
             <button
               key={prompt}
-              onClick={() => setPendingQuery(prompt)}
+              onClick={() => submitCommand(prompt, { source: 'investigation_quick_action' })}
               className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600/60 hover:bg-gray-800/40 transition-colors"
             >
               {prompt}
@@ -159,7 +161,6 @@ function AlertsTab({ invId }: { invId: string }) {
 function EntitiesTab({ invId }: { invId: string }) {
   const { investigations } = useInvestigationStore()
   const inv = investigations.find((i) => i.id === invId)!
-  const { setPendingQuery } = useSessionStore()
 
   const classify = (e: string) => {
     if (e.includes('@')) return 'user'
@@ -187,13 +188,13 @@ function EntitiesTab({ invId }: { invId: string }) {
             <span className="text-xs text-gray-200 font-mono flex-1">{entity}</span>
             <div className="flex gap-1.5">
               <button
-                onClick={() => setPendingQuery(`What did ${entity} do in the last 24 hours?`)}
+                onClick={() => submitCommand(`What did ${entity} do in the last 24 hours?`, { source: 'entity_chip' })}
                 className="text-[10px] px-2 py-1 rounded bg-blue-500/10 border border-blue-500/25 text-blue-300 hover:bg-blue-500/20 transition-colors"
               >
                 Query →
               </button>
               <button
-                onClick={() => setPendingQuery(`What is the blast radius for ${entity}?`)}
+                onClick={() => submitCommand(`What is the blast radius for ${entity}?`, { source: 'entity_chip' })}
                 className="text-[10px] px-2 py-1 rounded bg-orange-500/10 border border-orange-500/25 text-orange-300 hover:bg-orange-500/20 transition-colors"
               >
                 Blast radius →
@@ -206,45 +207,8 @@ function EntitiesTab({ invId }: { invId: string }) {
   )
 }
 
-function TimelineTab({ invId }: { invId: string }) {
-  const { investigations } = useInvestigationStore()
-  const { setPendingQuery } = useSessionStore()
-  const inv = investigations.find((i) => i.id === invId)!
-  const tlArtifact = inv.artifacts.find((a) => a.type === 'timeline')
-
-  if (!tlArtifact) {
-    return (
-      <div className="rounded-xl border border-dashed border-gray-700/50 px-5 py-10 flex flex-col items-center gap-3 text-center">
-        <span className="text-3xl text-gray-700">▶</span>
-        <p className="text-sm text-gray-500">No timeline artifact yet</p>
-        <button
-          onClick={() => setPendingQuery(`Build a timeline for ${inv.entities[0] ?? 'the primary entity'}`)}
-          className="text-xs px-3 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 transition-colors"
-        >
-          Generate Timeline →
-        </button>
-      </div>
-    )
-  }
-
-  const d = tlArtifact.data as Record<string, unknown>
-  return (
-    <div className="space-y-3">
-      <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-        <div className="text-xs font-medium text-gray-300 mb-1">{tlArtifact.title}</div>
-        <div className="text-[10px] text-gray-500">Saved {fmtTs(tlArtifact.created_at)}</div>
-        {d.total_events !== undefined && (
-          <div className="mt-2 text-xs text-blue-300">{String(d.total_events)} events mapped</div>
-        )}
-      </div>
-      <p className="text-xs text-gray-600">Full timeline visualization available after connecting to a real data source.</p>
-    </div>
-  )
-}
-
 function BlastRadiusTab({ invId }: { invId: string }) {
   const { investigations } = useInvestigationStore()
-  const { setPendingQuery } = useSessionStore()
   const inv = investigations.find((i) => i.id === invId)!
   const brArtifact = inv.artifacts.find((a) => a.type === 'blast_radius')
 
@@ -254,7 +218,7 @@ function BlastRadiusTab({ invId }: { invId: string }) {
         <span className="text-3xl text-gray-700">◎</span>
         <p className="text-sm text-gray-500">No blast radius analysis yet</p>
         <button
-          onClick={() => setPendingQuery(`What is the blast radius for ${inv.entities[0] ?? 'the primary entity'}?`)}
+          onClick={() => submitCommand(`What is the blast radius for ${inv.entities[0] ?? 'the primary entity'}?`, { source: 'investigation_quick_action' })}
           className="text-xs px-3 py-1.5 rounded-lg bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/30 transition-colors"
         >
           Run Blast Radius →
@@ -341,7 +305,6 @@ function NotesTab({ invId }: { invId: string }) {
 
 function ReportsTab({ invId }: { invId: string }) {
   const { investigations } = useInvestigationStore()
-  const { setPendingQuery } = useSessionStore()
   const inv = investigations.find((i) => i.id === invId)!
   const reportArtifacts = inv.artifacts.filter((a) => a.type === 'documentation' || a.type === 'handoff')
 
@@ -357,7 +320,7 @@ function ReportsTab({ invId }: { invId: string }) {
           ].map((prompt) => (
             <button
               key={prompt}
-              onClick={() => setPendingQuery(prompt)}
+              onClick={() => submitCommand(prompt, { source: 'investigation_quick_action' })}
               className="text-xs px-2.5 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
             >
               {prompt}
@@ -511,7 +474,8 @@ export function InvestigationWorkspacePage({ onBack }: Props) {
         {activeTab === 'overview'     && <OverviewTab     invId={inv.id} />}
         {activeTab === 'alerts'       && <AlertsTab       invId={inv.id} />}
         {activeTab === 'entities'     && <EntitiesTab     invId={inv.id} />}
-        {activeTab === 'timeline'     && <TimelineTab     invId={inv.id} />}
+        {activeTab === 'evidence'     && <EvidenceGraph   inv={inv} />}
+        {activeTab === 'timeline'     && <EvidenceTimeline inv={inv} />}
         {activeTab === 'blast-radius' && <BlastRadiusTab  invId={inv.id} />}
         {activeTab === 'notes'        && <NotesTab        invId={inv.id} />}
         {activeTab === 'reports'      && <ReportsTab      invId={inv.id} />}

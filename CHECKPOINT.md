@@ -161,6 +161,47 @@ Click any of the four buttons on the welcome screen:
 
 ---
 
+## Milestones Since v0.1.0
+
+| Version | Date | Summary |
+|---------|------|---------|
+| v0.5.0 | 2026-05-10 | App shell, sidebar navigation, browser history back/forward |
+| v0.6.0 | 2026-05-15 | Investigation memory — sessions, turns, artifacts, notes, pinned findings |
+| v0.7.0 | 2026-05-19 | Logs page, KQL query console, result artifacts, pivot suggestions |
+| v0.7.2 | 2026-05-21 | NLQ pipeline stability — mock_client routing fix, pydantic-settings migration |
+| v0.7.4 | 2026-05-22 | Entity-grounded query planner — entity scoped KQL, scope strip in QueryPreviewCard |
+| v0.7.5 | 2026-05-23 | Query intent precision — 5 inventory intents, IdentityInfo/DeviceProcess/etc KQL branches |
+| v0.7.6 | 2026-05-23 | Fallback cleanup — `_REQUIRED_TABLES` fix, `_NO_TIME_FILTER_TABLES`, inventory-aware fallback |
+| v0.8.0 | 2026-05-25 | Investigation Evidence Graph and Entity Timeline (see below) |
+
+### v0.8.0 — Investigation Evidence Graph and Entity Timeline
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/evidence.ts` | New: `EvidenceNode`, `EvidenceRelationship`, `InvestigationGap`, `EvidenceTimelineEntry`, `DerivedEvidence` types |
+| `apps/web/src/utils/evidenceGraph.ts` | New: `classifyEntityString()`, `deriveNodes()`, `deriveRelationships()`, `detectGaps()`, `deriveTimeline()`, `deriveEvidence()` |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | New: entity sidebar + relationship view + entity detail panel + investigation gaps — all derived from investigation memory |
+| `apps/web/src/components/investigation/EvidenceTimeline.tsx` | New: chronological timeline of turns, notes, and pinned findings derived from investigation store |
+| `apps/web/src/pages/InvestigationWorkspacePage.tsx` | Added `evidence` tab (EvidenceGraph) + replaced `TimelineTab` with `EvidenceTimeline` + replaced all `setPendingQuery` with `submitCommand` |
+| `apps/web/src/App.tsx` | Version bumped to v0.8.0 |
+
+**Architecture:**
+- Frontend-only derivation — no backend changes, no new npm packages
+- `deriveEvidence(inv)` is the single entry point; called with a memoized `useMemo` in each component
+- Entity classification: email → user, IP regex → ip, HOST_RE → host, COUNTRY_RE → country, short username → user
+- Relationship parsing: regex patterns on pinned finding text ("X → Y via Z", "X signed in from Y (IP)")
+- Gap detection: deterministic checklist (timeline artifact, process query, network query if IP present, blast_radius, handoff/docs, notes if findings exist)
+- All quick-action chips in entity detail panel use `submitCommand(prompt, { source: 'investigation_quick_action' })`
+
+**Known limitations (Phase 3):**
+- Relationship parsing is regex-based; complex natural language findings may not extract relationships
+- Timeline entries for pinned findings use `investigation.created_at` as timestamp (findings have no individual timestamps)
+- No cross-investigation entity linking
+
+---
+
 ## Remaining Gaps
 
 ### Phase 2 — Real SIEM Integration (not started)
