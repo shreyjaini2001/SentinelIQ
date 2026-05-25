@@ -55,4 +55,6 @@ export interface Investigation {
   pinned_findings: string[]
   notes: Note[]
   generated_reports: string[]
+  /** Node IDs (derived: `node:${value}`) marked reviewed by analyst */
+  reviewedEntityNodeIds?: string[]
 }

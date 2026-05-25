@@ -371,86 +371,69 @@ export function deriveRelationships(
 export function detectGaps(inv: Investigation): InvestigationGap[] {
   const gaps: InvestigationGap[] = []
   const artifactTypes = new Set(inv.artifacts.map((a) => a.type))
-
-  const allKql = inv.artifacts
-    .map((a) => {
-      const d = a.data as Record<string, unknown>
-      return typeof d?.kql === 'string' ? d.kql.toLowerCase() : ''
-    })
-    .join('\n')
-
-  const allTurnText = inv.turns.map((t) => t.user_text.toLowerCase()).join('\n')
   const hasIpEntity = inv.entities.some((e) => IP_RE.test(e))
   const hasFinding = inv.pinned_findings.length > 0
+  const primaryEntity = inv.entities[0] ?? 'the primary entity'
+  const hostEntity = inv.entities.find((e) => /^(DESKTOP|SERVER|WORKSTATION)/i.test(e)) ?? 'DESKTOP-42'
 
-  // Helper: check if any query_result artifact used a given SIEM table
-  const hasQueryResultForTable = (table: string) =>
+  // Strict check: query_result artifact must exist for the given table AND have rows
+  const hasQrEvidence = (table: string) =>
     inv.artifacts.some(
       (a) =>
         a.type === 'query_result' &&
-        ((a.data as QueryResultData)?.sourceTable ?? '').toLowerCase() === table.toLowerCase(),
+        ((a.data as QueryResultData)?.sourceTable ?? '').toLowerCase() === table.toLowerCase() &&
+        ((a.data as QueryResultData)?.rows?.length ?? 0) > 0,
     )
 
   if (!artifactTypes.has('timeline')) {
     gaps.push({
       id: 'gap-no-timeline',
       description: 'No attack timeline has been built for this investigation.',
-      suggestedAction: `Build a timeline — e.g. "Build a timeline for ${inv.entities[0] ?? 'the primary entity'}"`,
+      suggestedAction: 'Build attack timeline',
+      prompt: `Build a timeline for ${primaryEntity}`,
       severity: 'high',
     })
   }
 
-  const hasProcessEvidence =
-    hasQueryResultForTable('DeviceProcessEvents') ||
-    allKql.includes('deviceprocessevents') ||
-    allTurnText.includes('process') ||
-    allTurnText.includes('powershell') ||
-    allTurnText.includes('command')
-  if (!hasProcessEvidence) {
+  if (!hasQrEvidence('DeviceProcessEvents')) {
     gaps.push({
       id: 'gap-no-process-query',
       description: 'No process execution evidence has been collected for entities in this investigation.',
-      suggestedAction: `Query process activity — e.g. "Show PowerShell execution for ${
-        inv.entities.find((e) => /^(DESKTOP|SERVER|WORKSTATION)/i.test(e)) ?? 'DESKTOP-42'
-      }"`,
+      suggestedAction: `Query process activity — e.g. "Show PowerShell execution for ${hostEntity}"`,
+      prompt: `Show PowerShell execution for ${hostEntity}`,
       severity: 'high',
     })
   }
 
-  if (hasIpEntity) {
-    const hasNetworkEvidence =
-      hasQueryResultForTable('DeviceNetworkEvents') ||
-      allKql.includes('devicenetworkevents') ||
-      allTurnText.includes('network') ||
-      allTurnText.includes('outbound') ||
-      allTurnText.includes('connection')
-    if (!hasNetworkEvidence) {
-      gaps.push({
-        id: 'gap-no-network-query',
-        description: 'IP entities are present but no network traffic evidence has been collected.',
-        suggestedAction: `Query network events — e.g. "Show outbound connections from ${
-          inv.entities.find((e) => /^(DESKTOP|SERVER)/i.test(e)) ?? 'DESKTOP-42'
-        }"`,
-        severity: 'medium',
-      })
-    }
+  if (hasIpEntity && !hasQrEvidence('DeviceNetworkEvents')) {
+    gaps.push({
+      id: 'gap-no-network-query',
+      description: 'IP entities are present but no network traffic evidence has been collected.',
+      suggestedAction: `Query network events — e.g. "Show outbound connections from ${hostEntity}"`,
+      prompt: `Show outbound connections from ${hostEntity}`,
+      severity: 'medium',
+    })
   }
 
   if (!artifactTypes.has('blast_radius')) {
     gaps.push({
       id: 'gap-no-blast-radius',
       description: 'Blast radius has not been assessed for this investigation.',
-      suggestedAction: `Run blast radius — e.g. "What is the blast radius for ${inv.entities[0] ?? 'the primary entity'}?"`,
+      suggestedAction: `Run blast radius — e.g. "What is the blast radius for ${primaryEntity}?"`,
+      prompt: `What is the blast radius for ${primaryEntity}?`,
       severity: 'medium',
     })
   }
 
-  const hasHandoff = artifactTypes.has('handoff') || artifactTypes.has('documentation')
+  const hasHandoff =
+    artifactTypes.has('handoff') ||
+    artifactTypes.has('documentation')
   if (!hasHandoff) {
     gaps.push({
       id: 'gap-no-handoff',
       description: 'No handoff or documentation artifact has been generated.',
-      suggestedAction: 'Generate handoff — e.g. "Generate a shift handoff for this investigation"',
+      suggestedAction: 'Generate a shift handoff',
+      prompt: 'Generate a shift handoff for this investigation',
       severity: 'low',
     })
   }
@@ -459,7 +442,7 @@ export function detectGaps(inv: Investigation): InvestigationGap[] {
     gaps.push({
       id: 'gap-no-notes',
       description: 'Pinned findings exist but no analyst notes have been added.',
-      suggestedAction: 'Add a note to record analyst context or confirm entity status.',
+      suggestedAction: 'Add analyst notes to record investigation context.',
       severity: 'low',
     })
   }

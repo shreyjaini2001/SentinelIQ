@@ -37,7 +37,10 @@ export interface EvidenceRelationship {
 export interface InvestigationGap {
   id: string
   description: string
+  /** Human-readable label shown on the action button */
   suggestedAction: string
+  /** Clean command to submit when the action button is clicked; if absent, gap is informational only */
+  prompt?: string
   severity: 'high' | 'medium' | 'low'
 }
 

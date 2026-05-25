@@ -174,6 +174,109 @@ Click any of the four buttons on the welcome screen:
 | v0.7.6 | 2026-05-23 | Fallback cleanup — `_REQUIRED_TABLES` fix, `_NO_TIME_FILTER_TABLES`, inventory-aware fallback |
 | v0.8.0 | 2026-05-25 | Investigation Evidence Graph and Entity Timeline (see below) |
 | v0.8.1 | 2026-05-25 | Evidence Derivation Depth, Relationship Provenance, and Manual Evidence Actions (see below) |
+| v0.8.2 | 2026-05-25 | Evidence Workspace Completion — process evidence, count clarity, gap cleanup, source artifact nav (see below) |
+| v0.8.3 | 2026-05-25 | Evidence Manual Actions Finalization — entity note format + confirmation, relationship note composer (see below) |
+
+### v0.8.3 — Evidence Manual Actions Finalization
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | EntityDetailPanel: corrected note body format to `Entity note — {type} {value}:\n{text}`; added `noteSaved` state with "✓ Note added to {inv.title}" confirmation after save; RelationshipRow: added `invTitle?` prop; added inline relationship note composer with context header `Relationship note — {from} {verb} {to} ({table}):`, textarea, Save/Cancel, and "✓ Note added to {invTitle}" confirmation; passed `invTitle={inv.title}` at call site |
+| `apps/web/src/App.tsx` | Version bumped to v0.8.3 |
+
+**Entity note format corrected:**
+- Body format: `Entity note — ${type} ${value}:\n${text}` (previously used a different format)
+- Save confirmation: "✓ Note added to {inv.title}" rendered below Analyst Actions for 2.5s after save
+- Note form shows context prefix as read-only monospace header before the textarea
+- Cancel clears draft and closes form without saving
+
+**Relationship note composer (new):**
+- "Add note" button added to RelationshipRow expanded action row alongside existing "Open in Logs →", "Investigate →", "Open artifact →"
+- Inline composer opens inside the expanded panel with context header: `Relationship note — {from.value} {verb} {to.value} ({sourceTable}):` (table suffix omitted if absent)
+- Body format: `Relationship note — ${from} ${verb} ${to}${table ? ` (${table})` : ''}:\n${text}`
+- Calls `addNote()` from investigationStore directly
+- Save button disabled when draft is empty
+- "✓ Note added to {invTitle}" confirmation shown for 2.5s after save
+- `invTitle` prop passed from EvidenceGraph main component: `invTitle={inv.title}`
+
+**All v0.8.3 manual actions confirmed functional:**
+- Copy value: ✓ (clipboard write + transient confirmation)
+- Open in Logs →: ✓ (scoped query via submitCommand)
+- Add note (entity): ✓ (store-backed, correct format, confirmation)
+- Mark reviewed: ✓ (store-persisted reviewedEntityNodeIds, strikethrough + emerald badge)
+- Add note (relationship): ✓ (new in v0.8.3, store-backed, inline composer, confirmation)
+- Investigate →: ✓ (submitCommand)
+- Open artifact →: ✓ (tab switch + highlight ring)
+
+**v0.8 series closure:**
+- v0.8.3 completes the Evidence Manual Actions track — all manual SOC workflow actions are implemented and store-backed
+- Investigation memory always: notes persist in Zustand investigation state for the session, reviewedEntityNodeIds survive tab navigation
+
+**Known limitations (forward to Phase 3):**
+- Note content is not persisted across browser refresh (Zustand in-memory; no localStorage integration)
+- `reviewedEntityNodeIds` same limitation
+
+### v0.8.2 — Evidence Workspace Completion
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/investigation.ts` | Added `reviewedEntityNodeIds?: string[]` to `Investigation` — reviewed entity state persists across tab navigation |
+| `apps/web/src/types/evidence.ts` | Added `prompt?: string` to `InvestigationGap` — separates display label from submitted command |
+| `apps/web/src/stores/investigationStore.ts` | Added ART-007 (DeviceProcessEvents, 3 rows) to INV-001 fixture; added `toggleReviewedEntity(invId, nodeId)` action; added `reviewedEntityNodeIds: []` to all fixture investigations and `createInvestigation` |
+| `apps/web/src/utils/evidenceGraph.ts` | Tightened gap clearing: process/network gaps now only clear if a `query_result` artifact for that SIEM table exists with rows (removed loose KQL text/turn text fallbacks); added `prompt` field to all actionable gaps |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | Store-backed reviewed entity state; renamed "Entities" sidebar label to "Evidence Nodes (N) / case entities: N"; added "Open in Logs" as explicit analyst action in EntityDetailPanel; added "Open artifact →" button in source artifacts list and in RelationshipRow expanded panel; improved relationship display in detail panel (shows from/to entity chips); gap action buttons now submit `gap.prompt` (clean command), non-actionable gaps are informational only; added Evidence Sources section; `useEffect` guard for selected node cleanup |
+| `apps/web/src/pages/InvestigationWorkspacePage.tsx` | Renamed header stat "Entities" → "Case Entities"; added `handleNavigateToArtifact` callback passed to EvidenceGraph; added `highlightedArtifactId` state with `useEffect` cleanup; ArtifactsTab accepts and renders highlight ring on the source artifact |
+| `apps/web/src/App.tsx` | Version bumped to v0.8.2 |
+
+**Entity count mismatch resolved:**
+- Header stat pill now shows "Case Entities: 4" (`inv.entities.length` — the investigation seed entities)
+- Evidence sidebar header shows "Evidence Nodes (N)" with a secondary "case entities: M" label
+- Analyst can clearly distinguish: case entities = analyst-tagged entities; evidence nodes = all derived entities including process, country nodes extracted from query_result artifacts
+
+**Process evidence rendering:**
+- ART-007 (DeviceProcessEvents, 3 rows: powershell.exe × 2 + cmd.exe × 1) added to INV-001 fixture
+- `deriveNodes()` extracts `powershell.exe`, `cmd.exe`, `admin-svc` as process/user nodes from ART-007 `extractedEntities` and FileName column
+- `deriveRelationships()` produces: `DESKTOP-42 → executed process → powershell.exe`, `DESKTOP-42 → executed process → cmd.exe`, `SERVER-DC01 → executed process → powershell.exe`, `jsmith → launched process → powershell.exe`, `jsmith → launched process → cmd.exe`, `admin-svc → launched process → powershell.exe`
+- Process section appears under Evidence Nodes sidebar; clicking any process node opens detail panel with relationships and AI actions
+
+**Gap action prompt cleanup:**
+- `InvestigationGap.prompt` is the clean command submitted on click; `suggestedAction` is the display label
+- Example: displays "Query process activity — e.g. \"Show PowerShell execution for DESKTOP-42\"", submits "Show PowerShell execution for DESKTOP-42"
+- Notes gap (no meaningful AI command) shows `suggestedAction` as italic non-clickable text
+
+**Gap clearing evidence-based:**
+- Process gap: clears only if a `query_result` artifact with `sourceTable === 'DeviceProcessEvents'` AND `rows.length > 0` exists
+- Network gap: clears only if a `query_result` artifact with `sourceTable === 'DeviceNetworkEvents'` AND `rows.length > 0` exists
+- Removed loose fallbacks: KQL text scan and turn text keyword scan removed entirely
+
+**Source artifact navigation:**
+- "Open →" button on each source artifact in EntityDetailPanel calls `onNavigateToArtifact(artifactId)`
+- "Open artifact →" button in RelationshipRow expanded panel calls `onNavigateToArtifact(rel.artifactId)`
+- InvestigationWorkspacePage switches to Artifacts tab and renders a highlight ring (blue border + ring) on the target artifact
+- Highlight auto-clears when navigating to any other tab
+
+**Open in Logs from Evidence:**
+- Each entity detail panel's Analyst Actions now includes "Open in Logs →" as a dedicated button
+- Submits a scoped query matching entity type: user → sign-in activity, host → process+network activity, IP → network events, process → execution history, country → sign-ins
+- Uses `submitCommand()` through the shared command runner (same path as the AI bar)
+
+**Reviewed entity persistence:**
+- `reviewedEntityNodeIds` stored in investigation Zustand state (not component state)
+- Survives tab navigation within the investigation workspace
+- Node IDs are deterministic (`node:${value.toLowerCase()}`) so they survive re-derivation
+
+**Evidence Sources section:**
+- Compact pill section at the bottom of the Evidence tab showing counts: query results, pinned findings, notes, reports
+- Only shown when at least one source type is present
+
+**Known limitations:**
+- `reviewedEntityNodeIds` is not persisted across browser refresh (Zustand in-memory store; no localStorage integration yet)
+- Relationship extraction uses fixed column-index positions per SIEM table — fragile if columns arrive in different order
+- No cross-investigation entity linking
 
 ### v0.8.1 — Evidence Derivation Depth, Relationship Provenance, and Manual Evidence Actions
 

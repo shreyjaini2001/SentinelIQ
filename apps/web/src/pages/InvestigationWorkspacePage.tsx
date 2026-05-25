@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../stores/investigationStore'
 import type { Artifact } from '../types/investigation'
@@ -348,7 +348,7 @@ function ReportsTab({ invId }: { invId: string }) {
   )
 }
 
-function ArtifactsTab({ invId }: { invId: string }) {
+function ArtifactsTab({ invId, highlightedArtifactId }: { invId: string; highlightedArtifactId?: string | null }) {
   const { investigations, togglePin } = useInvestigationStore()
   const inv = investigations.find((i) => i.id === invId)!
 
@@ -360,7 +360,11 @@ function ArtifactsTab({ invId }: { invId: string }) {
         inv.artifacts.map((art: Artifact) => (
           <div key={art.id} className={clsx(
             'flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-gray-900/40 transition-colors',
-            art.pinned ? 'border-amber-500/30 bg-amber-500/5' : 'border-gray-700/40',
+            art.id === highlightedArtifactId
+              ? 'border-blue-500/50 bg-blue-500/5 ring-1 ring-blue-500/30'
+              : art.pinned
+              ? 'border-amber-500/30 bg-amber-500/5'
+              : 'border-gray-700/40',
           )}>
             <span className="text-sm text-gray-500 shrink-0">{ARTIFACT_ICON[art.type] ?? '◈'}</span>
             <div className="flex-1 min-w-0">
@@ -395,7 +399,18 @@ interface Props {
 
 export function InvestigationWorkspacePage({ onBack }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [highlightedArtifactId, setHighlightedArtifactId] = useState<string | null>(null)
   const { investigations, activeInvestigationId } = useInvestigationStore()
+
+  // Clear artifact highlight when leaving the Artifacts tab
+  useEffect(() => {
+    if (activeTab !== 'artifacts') setHighlightedArtifactId(null)
+  }, [activeTab])
+
+  const handleNavigateToArtifact = (artifactId: string) => {
+    setActiveTab('artifacts')
+    setHighlightedArtifactId(artifactId)
+  }
 
   const inv = investigations.find((i) => i.id === activeInvestigationId)
 
@@ -439,9 +454,9 @@ export function InvestigationWorkspacePage({ onBack }: Props) {
         {/* Stat pills */}
         <div className="flex gap-2 shrink-0">
           {[
-            { label: 'Alerts',    value: inv.alerts.length,            color: 'text-orange-400' },
-            { label: 'Pinned',    value: inv.pinned_findings.length,   color: 'text-amber-400' },
-            { label: 'Entities',  value: inv.entities.length,          color: 'text-cyan-400' },
+            { label: 'Alerts',        value: inv.alerts.length,          color: 'text-orange-400' },
+            { label: 'Pinned',        value: inv.pinned_findings.length, color: 'text-amber-400' },
+            { label: 'Case Entities', value: inv.entities.length,        color: 'text-cyan-400' },
           ].map((s) => (
             <div key={s.label} className="text-center px-3 py-2 rounded-lg border border-gray-700/40 bg-gray-900/40">
               <div className={`text-lg font-bold font-mono ${s.color}`}>{s.value}</div>
@@ -474,12 +489,12 @@ export function InvestigationWorkspacePage({ onBack }: Props) {
         {activeTab === 'overview'     && <OverviewTab     invId={inv.id} />}
         {activeTab === 'alerts'       && <AlertsTab       invId={inv.id} />}
         {activeTab === 'entities'     && <EntitiesTab     invId={inv.id} />}
-        {activeTab === 'evidence'     && <EvidenceGraph   inv={inv} />}
+        {activeTab === 'evidence'     && <EvidenceGraph   inv={inv} onNavigateToArtifact={handleNavigateToArtifact} />}
         {activeTab === 'timeline'     && <EvidenceTimeline inv={inv} />}
         {activeTab === 'blast-radius' && <BlastRadiusTab  invId={inv.id} />}
         {activeTab === 'notes'        && <NotesTab        invId={inv.id} />}
         {activeTab === 'reports'      && <ReportsTab      invId={inv.id} />}
-        {activeTab === 'artifacts'    && <ArtifactsTab    invId={inv.id} />}
+        {activeTab === 'artifacts'    && <ArtifactsTab    invId={inv.id} highlightedArtifactId={highlightedArtifactId} />}
       </div>
     </div>
   )
