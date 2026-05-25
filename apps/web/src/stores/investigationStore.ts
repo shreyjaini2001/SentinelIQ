@@ -12,6 +12,7 @@ const FIXTURE: Investigation[] = [
     updated_at: '2026-05-10T08:45:00Z',
     entities: ['jsmith@corp.com', '185.220.101.5', 'DESKTOP-42', 'SERVER-DC01'],
     alerts: ['ALT-001', 'ALT-002', 'ALT-003', 'ALT-004'],
+    reviewedEntityNodeIds: [],
     turns: [
       {
         id: 'TRN-001',
@@ -63,6 +64,78 @@ const FIXTURE: Investigation[] = [
         data: { blast_id: 'BLR-mock-001', risk_score: 8.4, total_reachable_assets: 18 },
         pinned: false,
       },
+      {
+        id: 'ART-005',
+        type: 'query_result',
+        title: 'Query Result — SigninLogs jsmith failed logins',
+        created_at: '2026-05-10T08:23:30Z',
+        data: {
+          columns: ['TimeGenerated', 'UserPrincipalName', 'IPAddress', 'Location', 'ResultType', 'AppDisplayName'],
+          rows: [
+            ['2026-05-10 08:23', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50126', 'Microsoft 365'],
+            ['2026-05-10 08:21', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50126', 'Azure Portal'],
+            ['2026-05-10 08:19', 'jsmith@corp.com', '185.220.101.5', 'RU / Moscow', '50053', 'Microsoft 365'],
+          ],
+          rowCount: 3,
+          queryTimeMs: 342,
+          sourceTable: 'SigninLogs',
+          extractedEntities: [
+            { type: 'user', value: 'jsmith@corp.com' },
+            { type: 'ip', value: '185.220.101.5' },
+            { type: 'country', value: 'Russia' },
+          ],
+        },
+        pinned: true,
+      },
+      {
+        id: 'ART-006',
+        type: 'query_result',
+        title: 'Query Result — DeviceNetworkEvents lateral movement',
+        created_at: '2026-05-10T08:45:00Z',
+        data: {
+          columns: ['TimeGenerated', 'DeviceName', 'RemoteIP', 'RemotePort', 'Protocol', 'BytesSent', 'ActionType'],
+          rows: [
+            ['2026-05-10 06:58', 'SERVER-DC01',   '185.220.101.5', '80',   'TCP', '2108000', 'ConnectionSuccess'],
+            ['2026-05-10 04:30', 'DESKTOP-42',    '203.0.113.42',  '4444', 'TCP', '88000',   'ConnectionSuccess'],
+          ],
+          rowCount: 2,
+          queryTimeMs: 198,
+          sourceTable: 'DeviceNetworkEvents',
+          extractedEntities: [
+            { type: 'host', value: 'SERVER-DC01' },
+            { type: 'host', value: 'DESKTOP-42' },
+            { type: 'ip', value: '185.220.101.5' },
+            { type: 'ip', value: '203.0.113.42' },
+          ],
+        },
+        pinned: false,
+      },
+      {
+        id: 'ART-007',
+        type: 'query_result',
+        title: 'Query Result — DeviceProcessEvents DESKTOP-42 & SERVER-DC01',
+        created_at: '2026-05-10T08:52:00Z',
+        data: {
+          columns: ['TimeGenerated', 'DeviceName', 'AccountName', 'FileName', 'ProcessCommandLine', 'SHA256'],
+          rows: [
+            ['2026-05-10 06:12', 'DESKTOP-42',  'jsmith',    'powershell.exe', '-EncodedCommand aQBmACAoAC...',            'a1b2c3d4e5f6...'],
+            ['2026-05-10 05:45', 'DESKTOP-42',  'jsmith',    'cmd.exe',        '/c whoami && net user',                   'e5f6a7b8c9d0...'],
+            ['2026-05-10 04:31', 'SERVER-DC01', 'admin-svc', 'powershell.exe', '-ExecutionPolicy Bypass -File run.ps1',   'c9d0e1f2a3b4...'],
+          ],
+          rowCount: 3,
+          queryTimeMs: 265,
+          sourceTable: 'DeviceProcessEvents',
+          extractedEntities: [
+            { type: 'host',    value: 'DESKTOP-42'     },
+            { type: 'host',    value: 'SERVER-DC01'    },
+            { type: 'user',    value: 'jsmith'         },
+            { type: 'user',    value: 'admin-svc'      },
+            { type: 'process', value: 'powershell.exe' },
+            { type: 'process', value: 'cmd.exe'        },
+          ],
+        },
+        pinned: true,
+      },
     ],
     pinned_findings: [
       'jsmith signed in from Moscow (185.220.101.5) 3× in 4 minutes — impossible travel confirmed',
@@ -89,6 +162,7 @@ const FIXTURE: Investigation[] = [
     updated_at: '2026-05-09T17:15:00Z',
     entities: ['admin-svc', 'SERVER-DC01', 'WORKSTATION-07'],
     alerts: ['ALT-005', 'ALT-006', 'ALT-007', 'ALT-008', 'ALT-009', 'ALT-010', 'ALT-011'],
+    reviewedEntityNodeIds: [],
     turns: [
       {
         id: 'TRN-004',
@@ -130,6 +204,7 @@ interface InvestigationState {
   addNote: (content: string) => void
   addPinnedFinding: (finding: string) => void
   removePinnedFindingFrom: (invId: string, finding: string) => void
+  toggleReviewedEntity: (invId: string, nodeId: string) => void
 }
 
 export const useInvestigationStore = create<InvestigationState>((set, get) => ({
@@ -144,6 +219,7 @@ export const useInvestigationStore = create<InvestigationState>((set, get) => ({
       created_at: now, updated_at: now,
       entities: [], alerts: [], turns: [], artifacts: [],
       pinned_findings: [], notes: [], generated_reports: [],
+      reviewedEntityNodeIds: [],
     }
     set((s) => ({ investigations: [inv, ...s.investigations], activeInvestigationId: id }))
     return id
@@ -250,6 +326,21 @@ export const useInvestigationStore = create<InvestigationState>((set, get) => ({
           ? { ...inv, pinned_findings: inv.pinned_findings.filter((f) => f !== finding) }
           : inv
       ),
+    }))
+  },
+
+  toggleReviewedEntity: (invId, nodeId) => {
+    set((s) => ({
+      investigations: s.investigations.map((inv) => {
+        if (inv.id !== invId) return inv
+        const current = inv.reviewedEntityNodeIds ?? []
+        return {
+          ...inv,
+          reviewedEntityNodeIds: current.includes(nodeId)
+            ? current.filter((id) => id !== nodeId)
+            : [...current, nodeId],
+        }
+      }),
     }))
   },
 }))

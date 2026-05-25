@@ -405,13 +405,21 @@ def _build_kql_from_intent(text: str) -> dict:
 | project TimeGenerated, DeviceName, RemoteIP, RemotePort, Protocol, BytesSent, ActionType
 | order by TimeGenerated desc
 | limit 100"""
+        elif hosts:
+            kql = f"""DeviceNetworkEvents
+| where {tf}
+| where ActionType == "ConnectionSuccess"{h_f}
+| where RemoteIPType == "Public"
+| project TimeGenerated, DeviceName, RemoteIP, RemotePort, Protocol, BytesSent, ActionType
+| order by TimeGenerated desc
+| limit 100"""
         else:
             kql = f"""DeviceNetworkEvents
 | where {tf}
 | where ActionType == "ConnectionSuccess"
-| where RemoteIPType == "Public"{h_f}
+| where RemoteIPType == "Public"
 | where RemotePort !in (80, 443, 53, 123)
-| summarize Connections = count(), Bytes = sum(AdditionalFields.BytesSent), Destinations = dcount(RemoteIP) by DeviceName
+| summarize Connections = count(), Bytes = sum(BytesSent), Destinations = dcount(RemoteIP) by DeviceName
 | order by Bytes desc"""
         return {"kql": kql, "table": "DeviceNetworkEvents"}
 
