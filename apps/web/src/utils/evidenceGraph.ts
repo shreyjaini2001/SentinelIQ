@@ -20,6 +20,7 @@ interface QueryResultData {
   kql?: string
   sourcePlatform?: string
   queryLanguage?: string
+  queryPlan?: { intent?: string }
 }
 
 // ── Entity classification ──────────────────────────────────────────────────
@@ -187,6 +188,7 @@ interface RelProvenance {
   timestamp?: string
   sourcePlatform?: string
   queryLanguage?: string
+  queryPlanIntent?: string
 }
 
 export function deriveRelationships(
@@ -296,6 +298,7 @@ export function deriveRelationships(
       timestamp: art.created_at,
       sourcePlatform: d.sourcePlatform,
       queryLanguage: d.queryLanguage,
+      queryPlanIntent: d.queryPlan?.intent,
     }
 
     const col = (name: string) =>

@@ -36,6 +36,8 @@ export interface EvidenceRelationship {
   sourcePlatform?: string
   /** Query language used (e.g. 'KQL', 'SPL', 'ESQL') */
   queryLanguage?: string
+  /** QueryPlan intent that produced this relationship (e.g. 'failed_logins') */
+  queryPlanIntent?: string
 }
 
 export interface InvestigationGap {

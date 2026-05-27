@@ -61,3 +61,15 @@ export interface SiemAdapter {
   getFieldMappings: () => FieldMapping[]
   getSupportedSources: () => SourceDefinition[]
 }
+
+export interface ValidationCheck {
+  name: string
+  passed: boolean
+  detail?: string
+}
+
+export interface ValidationResult {
+  passed: boolean
+  warnings: string[]
+  checks: ValidationCheck[]
+}

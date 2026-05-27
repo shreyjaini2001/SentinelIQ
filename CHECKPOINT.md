@@ -177,6 +177,7 @@ Click any of the four buttons on the welcome screen:
 | v0.8.2 | 2026-05-25 | Evidence Workspace Completion — process evidence, count clarity, gap cleanup, source artifact nav (see below) |
 | v0.8.3 | 2026-05-25 | Evidence Manual Actions Finalization — entity note format + confirmation, relationship note composer (see below) |
 | v0.9.0 | 2026-05-26 | Vendor-Agnostic Query Plan and SIEM Adapter Foundation — neutral QueryPlan, Sentinel/Splunk/Elastic adapters, platform selector (see below) |
+| v0.9.1 | 2026-05-26 | QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution (see below) |
 
 ### v0.9.0 — Vendor-Agnostic Query Plan and SIEM Adapter Foundation
 
@@ -264,9 +265,60 @@ Click any of the four buttons on the welcome screen:
 
 **Known limitations (forward to Phase 4):**
 - SPL and ES|QL templates not yet wired into the Logs page template panel (templates remain Sentinel/KQL)
-- `generateMockResults` cannot route on SPL/ESQL syntax — always falls back to KQL routing
 - Platform field mappings are representative, not production-validated against real Splunk/Elastic deployments
 - No real connector integration — all mock
+
+---
+
+### v0.9.1 — QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/queryPlan.ts` | Added `ValidationCheck { name, passed, detail? }` and `ValidationResult { passed, warnings, checks }` |
+| `apps/web/src/utils/mockResults.ts` | Exported `ALL_SIGNIN_ROWS`, `ALL_PROCESS_ROWS`, `ALL_NETWORK_ROWS`, `ALL_SECURITYEVENT_ROWS`, `signinEntities`, `processEntities`, `networkEntities`, `securityEventEntities`, `matchesFilter`; added `queryPlan?: QueryPlan` to `MockQueryResult` |
+| `apps/web/src/utils/queryPlanValidator.ts` | **New** — `validateRenderedQuery(plan, rendered): ValidationResult`; checks: entity scope, time range, source selected, intent-specific conditions (failed_logins/suspicious_powershell/local_admin_creation/identity_inventory); non-blocking |
+| `apps/web/src/utils/queryPlanResults.ts` | **New** — `generateResultsFromPlan(plan, rendered): MockQueryResult`; routes on `plan.intent` + `plan.entities` (not KQL text); attaches `sourcePlatform`, `queryLanguage`, `renderedQuery`, `queryPlan` metadata; all 15 intents covered |
+| `apps/web/src/components/query/QueryPlanInspector.tsx` | **New** — compact expandable "Plan" section in QueryPreviewCard; shows intent, platform, language, source, time, entities, explanation, validation checks; warning badge in header when validation fails |
+| `apps/web/src/components/query/AdapterCapabilities.tsx` | **New** — Source Catalog panel in Logs sidebar; lists each platform's language + source name mappings |
+| `apps/web/src/components/SearchBar/QueryPreviewCard.tsx` | Switched `handleRun` to `generateResultsFromPlan(plan, rendered)`; added `queryPlan: plan` to both query and query_result save payloads; added `QueryPlanInspector` before Explanation; added validation warning badge in header |
+| `apps/web/src/pages/LogsPage.tsx` | Added `AdapterCapabilities` to left sidebar |
+| `apps/web/src/types/evidence.ts` | Added `queryPlanIntent?: string` to `EvidenceRelationship` |
+| `apps/web/src/utils/evidenceGraph.ts` | Extended `QueryResultData` with `queryPlan?`; passes `queryPlanIntent` through `RelProvenance` into derived relationships |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | Relationship provenance panel now shows Intent row when `queryPlanIntent` present |
+| `apps/web/src/App.tsx` | Version bumped to v0.9.1 |
+
+**QueryPlan-native mock execution:**
+- `generateResultsFromPlan` replaces `generateMockResults` in QueryPreviewCard's Run action
+- Routes on `plan.intent` switch over all 15 intents — no KQL text parsing
+- Entity filters applied directly from `plan.entities` array
+- `sourceTable` kept as canonical Sentinel table name for evidence routing compatibility
+- Result shape unchanged (`MockQueryResult`) with `queryPlan` attached
+
+**Adapter validation:**
+- `validateRenderedQuery(plan, rendered)` produces up to 4 checks
+- Non-blocking: warning badge shown but execution not prevented
+- Intent-specific checks: `failed_logins` → failure filter, `suspicious_powershell` → powershell keyword, `local_admin_creation` → event IDs 4720/4728, `identity_inventory` → identity source
+
+**QueryPlan inspector:**
+- Collapsed by default — zero visual noise on normal flow
+- Expands to show: intent, platform, language, source, time range, entities, explanation, per-check validation status
+- Warning badge in QueryPreviewCard header propagates validation failures up
+
+**Source Catalog (AdapterCapabilities):**
+- Shows all three adapters' source name mappings in the Logs left sidebar
+- Neutral name → platform source (e.g. `sign-in-logs → SigninLogs` / `index=identity sourcetype=azure:signin` / `signin-logs`)
+
+**Evidence provenance:**
+- `EvidenceRelationship.queryPlanIntent` set from `queryPlan.intent` at artifact save time
+- RelationshipRow expanded panel now shows Platform, Language, and Intent when all available
+
+**All prior behaviors preserved:**
+- Manual Logs workflow unchanged (`generateMockResults` still available; LogsPage uses it)
+- AI-assisted workflow unchanged
+- v0.8 Evidence workspace unchanged
+- v0.9.0 adapter/platform-selector behavior unchanged
 
 ### v0.8.3 — Evidence Manual Actions Finalization
 
