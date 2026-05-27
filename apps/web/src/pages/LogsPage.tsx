@@ -9,6 +9,7 @@ import { QueryResultTable } from '../components/query/QueryResultTable'
 import { EntityChips } from '../components/query/EntityChips'
 import { PivotSuggestions } from '../components/query/PivotSuggestions'
 import { PlatformSelector } from '../components/query/PlatformSelector'
+import { AdapterCapabilities } from '../components/query/AdapterCapabilities'
 import { PLATFORM_NAMES, PLATFORM_LANGUAGES, deriveQueryPlanFromKql, renderQuery } from '../utils/siemAdapters'
 import type { ExtractedEntity } from '../utils/mockResults'
 
@@ -322,6 +323,10 @@ export function LogsPage() {
               </div>
             </section>
           )}
+
+          <section>
+            <AdapterCapabilities />
+          </section>
 
           <section>
             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">AI Generate</div>

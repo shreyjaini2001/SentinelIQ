@@ -1,13 +1,15 @@
 import { useState, useMemo } from 'react'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import type { QueryResult } from '../../types'
-import { generateMockResults } from '../../utils/mockResults'
 import type { MockQueryResult, ExtractedEntity } from '../../utils/mockResults'
 import { parseKqlScope } from '../../utils/queryPlanner'
 import { deriveQueryPlanFromKql, renderQuery, PLATFORM_NAMES, PLATFORM_LANGUAGES } from '../../utils/siemAdapters'
+import { validateRenderedQuery } from '../../utils/queryPlanValidator'
+import { generateResultsFromPlan } from '../../utils/queryPlanResults'
 import { QueryResultTable } from '../query/QueryResultTable'
 import { EntityChips } from '../query/EntityChips'
 import { PlatformSelector } from '../query/PlatformSelector'
+import { QueryPlanInspector } from '../query/QueryPlanInspector'
 import { useInvestigationStore } from '../../stores/investigationStore'
 import { useLogsStore } from '../../stores/logsStore'
 import { submitCommand } from '../../utils/commandRunner'
@@ -42,9 +44,10 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   const { activeInvestigationId, addArtifact } = useInvestigationStore()
   const { selectedPlatform, setSelectedPlatform } = useLogsStore()
 
-  // Derive neutral plan + rendered query for the selected platform
+  // Derive neutral plan + rendered query + validation for the selected platform
   const plan = useMemo(() => deriveQueryPlanFromKql(committedKql), [committedKql])
   const rendered = useMemo(() => renderQuery(plan, selectedPlatform), [plan, selectedPlatform])
+  const validation = useMemo(() => validateRenderedQuery(plan, rendered), [plan, rendered])
 
   // What to display in the code block
   const displayedQuery = selectedPlatform === 'sentinel' ? committedKql : rendered.query
@@ -64,12 +67,9 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   }
 
   const handleRun = () => {
-    // For Sentinel: if editing, run the edited KQL and commit it
-    // For other platforms: always use committedKql (mock results are KQL-keyed)
-    const kqlToRun = isEditing && selectedPlatform === 'sentinel' ? editedQuery : committedKql
     if (isEditing && selectedPlatform === 'sentinel') setCommittedKql(editedQuery)
     setIsEditing(false)
-    setRunResults(generateMockResults(kqlToRun))
+    setRunResults(generateResultsFromPlan(plan, rendered))
     setSavedResult(false)
   }
 
@@ -98,6 +98,7 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
         sourcePlatform: selectedPlatform,
         queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
         renderedQuery: displayedQuery,
+        queryPlan: plan,
       },
     })
     setSaved(true)
@@ -115,6 +116,7 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
         sourcePlatform: selectedPlatform,
         queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
         renderedQuery: displayedQuery,
+        queryPlan: plan,
       },
     })
     setSavedResult(true)
@@ -154,6 +156,11 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
             confidence={result.confidence}
             assumptions={result.explanation.assumptions}
           />
+          {!validation.passed && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/30 bg-amber-500/10">
+              ⚠ {validation.warnings.length}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           <PlatformSelector value={selectedPlatform} onChange={handlePlatformChange} />
@@ -298,6 +305,9 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
           )}
         </div>
       )}
+
+      {/* Plan inspector */}
+      <QueryPlanInspector plan={plan} rendered={rendered} validation={validation} />
 
       {/* Explanation toggle */}
       <div className="border-t border-gray-700/50">

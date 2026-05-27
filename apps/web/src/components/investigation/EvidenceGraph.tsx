@@ -238,6 +238,12 @@ function RelationshipRow({
                 <span className="text-blue-400 font-mono text-[9px]">{rel.queryLanguage}</span>
               </div>
             )}
+            {rel.queryPlanIntent && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Intent:</span>
+                <span className="text-purple-400 font-mono text-[9px]">{rel.queryPlanIntent}</span>
+              </div>
+            )}
           </div>
 
           {/* Finding text preview */}
