@@ -18,6 +18,8 @@ interface QueryResultData {
   sourceTable?: string
   extractedEntities?: Array<{ type: string; value: string }>
   kql?: string
+  sourcePlatform?: string
+  queryLanguage?: string
 }
 
 // ── Entity classification ──────────────────────────────────────────────────
@@ -183,6 +185,8 @@ interface RelProvenance {
   artifactId?: string
   rowCount?: number
   timestamp?: string
+  sourcePlatform?: string
+  queryLanguage?: string
 }
 
 export function deriveRelationships(
@@ -290,6 +294,8 @@ export function deriveRelationships(
       artifactId: art.id,
       rowCount: d.rowCount ?? d.rows.length,
       timestamp: art.created_at,
+      sourcePlatform: d.sourcePlatform,
+      queryLanguage: d.queryLanguage,
     }
 
     const col = (name: string) =>

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { MockQueryResult } from '../utils/mockResults'
+import type { SiemPlatform } from '../types/queryPlan'
 
 interface LogsState {
   kql: string
@@ -12,6 +13,8 @@ interface LogsState {
   pinnedFindingText: string | null
   pinnedInvId: string | null
   caseTargetId: string | null
+  /** Currently selected SIEM platform — affects query rendering across the app */
+  selectedPlatform: SiemPlatform
 
   setKql: (kql: string) => void
   setResults: (r: MockQueryResult | null) => void
@@ -21,6 +24,7 @@ interface LogsState {
   setShowSummary: (v: boolean) => void
   setPinned: (v: boolean, text?: string, invId?: string) => void
   setCaseTargetId: (id: string | null) => void
+  setSelectedPlatform: (p: SiemPlatform) => void
   clearResults: () => void
 }
 
@@ -36,6 +40,7 @@ export const useLogsStore = create<LogsState>()(
       pinnedFindingText: null,
       pinnedInvId: null,
       caseTargetId: null,
+      selectedPlatform: 'sentinel',
 
       setKql: (kql) => set({ kql }),
       setResults: (results) => set({ results }),
@@ -64,6 +69,8 @@ export const useLogsStore = create<LogsState>()(
 
       setCaseTargetId: (id) => set({ caseTargetId: id }),
 
+      setSelectedPlatform: (selectedPlatform) => set({ selectedPlatform }),
+
       clearResults: () =>
         set({ results: null, pinned: false, pinnedFindingText: null, pinnedInvId: null, showSummary: false }),
     }),
@@ -74,6 +81,7 @@ export const useLogsStore = create<LogsState>()(
         recentQueries: s.recentQueries,
         savedQueries: s.savedQueries,
         caseTargetId: s.caseTargetId,
+        selectedPlatform: s.selectedPlatform,
       }),
     },
   ),

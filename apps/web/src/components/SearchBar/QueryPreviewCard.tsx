@@ -1,15 +1,17 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import type { QueryResult } from '../../types'
 import { generateMockResults } from '../../utils/mockResults'
 import type { MockQueryResult, ExtractedEntity } from '../../utils/mockResults'
 import { parseKqlScope } from '../../utils/queryPlanner'
+import { deriveQueryPlanFromKql, renderQuery, PLATFORM_NAMES, PLATFORM_LANGUAGES } from '../../utils/siemAdapters'
 import { QueryResultTable } from '../query/QueryResultTable'
 import { EntityChips } from '../query/EntityChips'
+import { PlatformSelector } from '../query/PlatformSelector'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { useLogsStore } from '../../stores/logsStore'
 import { submitCommand } from '../../utils/commandRunner'
 
-// Reset global-flag regexes per call by recreating them
 function highlightKql(kql: string): string {
   return kql
     .replace(/\/\/.*/g,                   (m) => `<span class="kql-comment">${m}</span>`)
@@ -32,45 +34,71 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   const [saved, setSaved]               = useState(false)
   const [savedResult, setSavedResult]   = useState(false)
   const [isEditing, setIsEditing]       = useState(false)
-  const [editedKql, setEditedKql]       = useState(result.generated_query)
-  // committedKql tracks the last KQL that was actually Run — survives isEditing=false
+  // committedKql always holds the internal KQL for mock result generation
   const [committedKql, setCommittedKql] = useState(result.generated_query)
+  const [editedQuery, setEditedQuery]   = useState(result.generated_query)
   const [runResults, setRunResults]     = useState<MockQueryResult | null>(null)
 
   const { activeInvestigationId, addArtifact } = useInvestigationStore()
+  const { selectedPlatform, setSelectedPlatform } = useLogsStore()
 
-  // activeKql: what the card currently represents
-  const activeKql = isEditing ? editedKql : committedKql
+  // Derive neutral plan + rendered query for the selected platform
+  const plan = useMemo(() => deriveQueryPlanFromKql(committedKql), [committedKql])
+  const rendered = useMemo(() => renderQuery(plan, selectedPlatform), [plan, selectedPlatform])
+
+  // What to display in the code block
+  const displayedQuery = selectedPlatform === 'sentinel' ? committedKql : rendered.query
+
+  // Sync edit textarea when platform changes (only when not actively editing)
+  const handlePlatformChange = (p: typeof selectedPlatform) => {
+    setSelectedPlatform(p)
+    if (!isEditing) setEditedQuery(p === 'sentinel' ? committedKql : renderQuery(plan, p).query)
+  }
+
+  const scope = parseKqlScope(committedKql)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(activeKql)
+    await navigator.clipboard.writeText(isEditing ? editedQuery : displayedQuery)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
   const handleRun = () => {
-    const kqlToRun = isEditing ? editedKql : committedKql
+    // For Sentinel: if editing, run the edited KQL and commit it
+    // For other platforms: always use committedKql (mock results are KQL-keyed)
+    const kqlToRun = isEditing && selectedPlatform === 'sentinel' ? editedQuery : committedKql
+    if (isEditing && selectedPlatform === 'sentinel') setCommittedKql(editedQuery)
     setIsEditing(false)
-    setCommittedKql(kqlToRun)   // commit so Open in Logs and Save to Case use this KQL
     setRunResults(generateMockResults(kqlToRun))
     setSavedResult(false)
   }
 
   const handleCancelEdit = () => {
     setIsEditing(false)
-    setEditedKql(committedKql)  // restore to committed, not necessarily original
+    setEditedQuery(displayedQuery)
+  }
+
+  const handleStartEdit = () => {
+    setEditedQuery(displayedQuery)
+    setIsEditing(true)
   }
 
   const handleOpenInLogs = () => {
-    // Always passes the committed/active KQL — preserves edited version after Run Edited
-    onOpenInLogs?.(activeKql)
+    // Always pass the Sentinel KQL to the Logs editor (mock results are KQL-keyed)
+    onOpenInLogs?.(committedKql)
   }
 
   const handleSave = () => {
     addArtifact({
       type: 'query',
       title: `Query: ${result.explanation.summary.slice(0, 60)}`,
-      data: { kql: activeKql, query_id: result.query_id },
+      data: {
+        kql: committedKql,
+        query_id: result.query_id,
+        sourcePlatform: selectedPlatform,
+        queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
+        renderedQuery: displayedQuery,
+      },
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -81,7 +109,13 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
     addArtifact({
       type: 'query_result',
       title: `Query Result: ${result.explanation.summary.slice(0, 50)}`,
-      data: { ...runResults, kql: committedKql },
+      data: {
+        ...runResults,
+        kql: committedKql,
+        sourcePlatform: selectedPlatform,
+        queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
+        renderedQuery: displayedQuery,
+      },
     })
     setSavedResult(true)
     setTimeout(() => setSavedResult(false), 2000)
@@ -99,21 +133,31 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
   }
 
   const btnBase = 'text-xs text-gray-400 hover:text-gray-200 transition-colors px-2 py-1 rounded hover:bg-gray-700/60'
-  const scope = parseKqlScope(committedKql)
+
+  const langBadgeClass = selectedPlatform === 'sentinel'
+    ? 'text-blue-400 border-blue-500/30 bg-blue-500/5'
+    : selectedPlatform === 'splunk'
+    ? 'text-orange-400 border-orange-500/30 bg-orange-500/5'
+    : 'text-green-400 border-green-500/30 bg-green-500/5'
 
   return (
     <div data-testid="query-preview-card" className="rounded-xl border border-gray-700/60 bg-gray-900/70 backdrop-blur overflow-hidden">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700/50">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700/50 gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-mono">KQL</span>
+          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${langBadgeClass}`}>
+            {PLATFORM_LANGUAGES[selectedPlatform]}
+          </span>
+          <span className="text-[10px] text-gray-600">{PLATFORM_NAMES[selectedPlatform]}</span>
           <ConfidenceBadge
             confidence={result.confidence}
             assumptions={result.explanation.assumptions}
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
+          <PlatformSelector value={selectedPlatform} onChange={handlePlatformChange} />
+
           <button onClick={handleCopy} className={btnBase}>
             {copied ? 'Copied!' : 'Copy'}
           </button>
@@ -121,7 +165,7 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
           {isEditing ? (
             <button onClick={handleCancelEdit} className={btnBase}>Cancel</button>
           ) : (
-            <button onClick={() => setIsEditing(true)} className={btnBase}>Edit</button>
+            <button onClick={handleStartEdit} className={btnBase}>Edit</button>
           )}
 
           <button
@@ -155,29 +199,40 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
         </div>
       </div>
 
-      {/* KQL display or inline editor */}
+      {/* Query display or inline editor */}
       {isEditing ? (
         <div className="px-4 py-3 bg-gray-950/30">
           <textarea
-            value={editedKql}
-            onChange={(e) => setEditedKql(e.target.value)}
-            rows={Math.max(4, editedKql.split('\n').length + 1)}
+            value={editedQuery}
+            onChange={(e) => setEditedQuery(e.target.value)}
+            rows={Math.max(4, editedQuery.split('\n').length + 1)}
             className="w-full bg-transparent text-gray-200 text-sm font-mono resize-none outline-none leading-relaxed border border-gray-700/40 rounded px-2 py-1.5 focus:border-blue-500/40"
             spellCheck={false}
             autoFocus
           />
-          <p className="text-[10px] text-gray-600 mt-1.5">Edit inline · click Run Edited to execute · Cancel to restore</p>
+          <p className="text-[10px] text-gray-600 mt-1.5">
+            Edit inline · click Run Edited to execute · Cancel to restore
+            {selectedPlatform !== 'sentinel' && (
+              <span className="text-gray-700"> · Mock results use Sentinel routing regardless of displayed language</span>
+            )}
+          </p>
         </div>
       ) : (
         <div className="px-4 py-3 overflow-x-auto">
-          <pre
-            className="text-sm font-mono text-gray-200 whitespace-pre leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: highlightKql(committedKql) }}
-          />
+          {selectedPlatform === 'sentinel' ? (
+            <pre
+              className="text-sm font-mono text-gray-200 whitespace-pre leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: highlightKql(committedKql) }}
+            />
+          ) : (
+            <pre className="text-sm font-mono text-gray-200 whitespace-pre leading-relaxed">
+              {rendered.query}
+            </pre>
+          )}
         </div>
       )}
 
-      {/* Scope strip — shows interpreted intent + entity filter */}
+      {/* Scope / metadata strip */}
       {!isEditing && (
         <div className="px-4 py-1.5 border-b border-gray-700/40 bg-gray-950/30 flex items-center gap-2 flex-wrap">
           <span className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest shrink-0">Interpreted as</span>
@@ -203,7 +258,7 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
             </>
           )}
           <span className="text-gray-700 text-[10px]">·</span>
-          <span className="text-[10px] text-gray-600 font-mono">{scope.table}</span>
+          <span className="text-[10px] text-gray-600 font-mono">{rendered.sourceName}</span>
           <span className="text-gray-700 text-[10px]">·</span>
           <span className="text-[10px] text-gray-600">{scope.timeAgo === 'N/A' ? 'no time filter' : `last ${scope.timeAgo}`}</span>
         </div>
@@ -213,7 +268,10 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
       {runResults && (
         <div className="border-t border-gray-700/50 px-4 py-3 space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Results</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Results</span>
+              <span className="text-[10px] text-gray-700">· normalized mock data</span>
+            </div>
             {activeInvestigationId && (
               <button
                 onClick={handleSaveResult}
@@ -278,7 +336,14 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
               </div>
             )}
             <div className="mt-2 p-2 rounded bg-gray-800/60 border border-gray-700/40">
-              <p className="text-[10px] text-gray-500">Mock mode — deterministic fixture data.{scope.scopeLabel ? ` Scope: ${scope.scopeLabel}.` : scope.isScoped ? ' Scoped to the requested entity.' : ' Structurally representative.'} Results will vary in a live Sentinel workspace.</p>
+              <p className="text-[10px] text-gray-500">
+                Mock mode — deterministic fixture data.
+                {selectedPlatform !== 'sentinel' && (
+                  <> Query rendered as {PLATFORM_LANGUAGES[selectedPlatform]} for {PLATFORM_NAMES[selectedPlatform]}. </>
+                )}
+                {scope.scopeLabel ? ` Scope: ${scope.scopeLabel}.` : scope.isScoped ? ' Scoped to the requested entity.' : ' Structurally representative.'}
+                {' '}Results will vary in a live workspace.
+              </p>
             </div>
           </div>
         )}
@@ -286,3 +351,4 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
     </div>
   )
 }
+

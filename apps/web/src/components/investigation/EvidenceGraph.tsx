@@ -5,6 +5,7 @@ import type { EvidenceNode, EvidenceRelationship, InvestigationGap } from '../..
 import { deriveEvidence } from '../../utils/evidenceGraph'
 import { submitCommand } from '../../utils/commandRunner'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { PLATFORM_NAMES } from '../../utils/siemAdapters'
 
 const NODE_COLOR: Record<string, string> = {
   user:    'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
@@ -223,6 +224,20 @@ function RelationshipRow({
                 {PROV_LABEL[rel.provenanceType]}
               </span>
             </div>
+            {rel.sourcePlatform && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Platform:</span>
+                <span className="text-gray-400 text-[9px]">
+                  {PLATFORM_NAMES[rel.sourcePlatform as keyof typeof PLATFORM_NAMES] ?? rel.sourcePlatform}
+                </span>
+              </div>
+            )}
+            {rel.queryLanguage && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600 w-14 shrink-0">Language:</span>
+                <span className="text-blue-400 font-mono text-[9px]">{rel.queryLanguage}</span>
+              </div>
+            )}
           </div>
 
           {/* Finding text preview */}
