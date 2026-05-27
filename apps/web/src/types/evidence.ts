@@ -32,6 +32,10 @@ export interface EvidenceRelationship {
   rowCount?: number
   /** ISO timestamp when the supporting artifact was created */
   timestamp?: string
+  /** SIEM platform that produced the supporting artifact (e.g. 'sentinel', 'splunk', 'elastic') */
+  sourcePlatform?: string
+  /** Query language used (e.g. 'KQL', 'SPL', 'ESQL') */
+  queryLanguage?: string
 }
 
 export interface InvestigationGap {

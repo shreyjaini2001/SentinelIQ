@@ -12,6 +12,12 @@ export interface MockQueryResult {
   queryTimeMs: number
   sourceTable: string
   extractedEntities: ExtractedEntity[]
+  /** Platform that produced or rendered this result (populated at save time) */
+  sourcePlatform?: string
+  /** Query language used (populated at save time) */
+  queryLanguage?: string
+  /** Rendered query text in the platform language (populated at save time) */
+  renderedQuery?: string
 }
 
 function ent(type: EntityType, value: string): ExtractedEntity {

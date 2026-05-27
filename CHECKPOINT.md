@@ -176,6 +176,97 @@ Click any of the four buttons on the welcome screen:
 | v0.8.1 | 2026-05-25 | Evidence Derivation Depth, Relationship Provenance, and Manual Evidence Actions (see below) |
 | v0.8.2 | 2026-05-25 | Evidence Workspace Completion — process evidence, count clarity, gap cleanup, source artifact nav (see below) |
 | v0.8.3 | 2026-05-25 | Evidence Manual Actions Finalization — entity note format + confirmation, relationship note composer (see below) |
+| v0.9.0 | 2026-05-26 | Vendor-Agnostic Query Plan and SIEM Adapter Foundation — neutral QueryPlan, Sentinel/Splunk/Elastic adapters, platform selector (see below) |
+
+### v0.9.0 — Vendor-Agnostic Query Plan and SIEM Adapter Foundation
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/queryPlan.ts` | **New** — `QueryPlan`, `RenderedQuery`, `SiemPlatform` (`'sentinel' \| 'splunk' \| 'elastic'`), `QueryLanguage` (`'KQL' \| 'SPL' \| 'ESQL'`), `SiemAdapter`, `QueryPlanIntent` (15 intents), `QueryPlanEntity`, `FieldMapping`, `SourceDefinition` |
+| `apps/web/src/utils/siemAdapters.ts` | **New** — `deriveQueryPlanFromKql(kql)` maps KQL scope to neutral `QueryPlan`; `renderQuery(plan, platform)` dispatches to Sentinel/Splunk/Elastic adapters; `PLATFORM_NAMES`, `PLATFORM_LANGUAGES` constants; full adapter implementations for all 15 intents |
+| `apps/web/src/components/query/PlatformSelector.tsx` | **New** — 3-button platform selector (Sentinel / Splunk / Elastic); reads/sets `useLogsStore.selectedPlatform` |
+| `apps/web/src/stores/logsStore.ts` | Added `selectedPlatform: SiemPlatform` (default `'sentinel'`), `setSelectedPlatform` action; persisted via Zustand `partialize` |
+| `apps/web/src/utils/mockResults.ts` | Added optional `sourcePlatform?`, `queryLanguage?`, `renderedQuery?` to `MockQueryResult` — populated at save time, not during generation |
+| `apps/web/src/types/evidence.ts` | Added `sourcePlatform?` and `queryLanguage?` to `EvidenceRelationship` |
+| `apps/web/src/utils/evidenceGraph.ts` | Extended `QueryResultData` with `sourcePlatform?`/`queryLanguage?`; passes them through `RelProvenance` into derived relationships |
+| `apps/web/src/components/SearchBar/QueryPreviewCard.tsx` | Platform-aware query display — KQL highlighted for Sentinel, plain mono for SPL/ESQL; `PlatformSelector` in header; scope strip shows `sourceName` from rendered adapter; "Save to Case" / "Save Result" include `sourcePlatform`, `queryLanguage`, `renderedQuery`; mock results always use internal KQL for routing |
+| `apps/web/src/pages/LogsPage.tsx` | Header shows `Query console · {platform}`; `PlatformSelector` in header; editor toolbar shows language badge; textarea placeholder is platform-aware; "Save to Case" stores platform metadata; Templates section labeled `(Sentinel/KQL)` |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | Relationship provenance panel now shows Platform + Language rows when present |
+| `apps/web/src/App.tsx` | Version bumped to v0.9.0 |
+
+**Neutral QueryPlan:**
+- Separates analyst intent from query language
+- 15 intents: `failed_logins`, `user_activity`, `host_activity`, `ip_activity`, `process_activity`, `suspicious_powershell`, `outbound_connections`, `user_host_relationships`, `identity_inventory`, `observed_users`, `host_inventory`, `ip_inventory`, `process_inventory`, `local_admin_creation`, `generic`
+- Entities, time range, data goal all SIEM-neutral
+- Derived from any KQL via `deriveQueryPlanFromKql(kql)`
+
+**Adapter interface:**
+- `SiemAdapter.renderQuery(plan)` → `RenderedQuery { platform, language, query, sourceName, explanation }`
+- All adapters fully implement all 15 intents
+- Entity scope flows through: user/host/IP filters preserved across platforms
+- Time range converted: KQL `ago(24h)` → SPL `earliest=-24h` → ES|QL `NOW() - 24 HOURS`
+
+**Microsoft Sentinel / KQL adapter:**
+- Preserves all v0.7.6–v0.8.x KQL behavior
+- Canonical table names: SigninLogs, DeviceProcessEvents, DeviceNetworkEvents, SecurityEvent, DeviceLogonEvents, IdentityInfo
+- Entity-scoped filters: `Account has "user"`, `DeviceName =~ "host"`, `RemoteIP == "ip"`
+
+**Splunk / SPL adapter:**
+- Representative mock SPL for all 15 intents
+- Uses `index=identity`, `index=windows`, `index=network`, `index=edr` source namespaces
+- Entity scope: `| search user="..."`, `host="..."`, `dest_ip="..."`
+- Time range: `earliest=-Nh` / `earliest=-Nd` SPL syntax
+- Inventory: `stats`, `dc()`, `values()` aggregations
+
+**Elastic / ES|QL adapter:**
+- Uses ES|QL-style `FROM ... | WHERE | KEEP | SORT` pipeline syntax
+- Source indices: `signin-logs`, `endpoint-events`, `network-events`, `security-events`, `identity-info`
+- ECS field schema: `user.name`, `host.name`, `source.ip`, `destination.ip`, `process.name`, `@timestamp`
+- Time range: `@timestamp > NOW() - N HOURS/DAYS/MINUTES`
+
+**Platform selector:**
+- Global — stored in persisted `logsStore.selectedPlatform`
+- Appears in: Logs page header, QueryPreviewCard header
+- Switching platform re-renders the same QueryPlan into the selected language
+- Entity scope and time range preserved across platform switches
+- Default: Microsoft Sentinel (backward compatible)
+
+**Mock result behavior (unchanged):**
+- `generateMockResults(kql)` still routes on KQL table keywords — no change
+- Platform metadata (`sourcePlatform`, `queryLanguage`, `renderedQuery`) attached at save time
+- Mock rows remain normalized and deterministic regardless of platform
+
+**Artifact storage:**
+- Query and query_result artifacts now include: `sourcePlatform`, `queryLanguage`, `renderedQuery`
+- Artifact titles remain clean: `Query — ...`, `Query Result — ...`
+- Evidence provenance reads platform/language from artifact data
+
+**Evidence provenance:**
+- `EvidenceRelationship.sourcePlatform` and `queryLanguage` populated when artifact was saved with platform metadata
+- RelationshipRow expanded panel shows Platform + Language rows when available
+- Evidence remains internally vendor-neutral: entity types unchanged
+
+**Manual workflow preserved:**
+- Logs page textarea: analyst can type any query manually
+- Run button always runs `generateMockResults(kql)` — mock routing unchanged
+- Save to Case records platform context alongside result
+
+**AI-assisted workflow preserved:**
+- AI bar still accepts all natural-language prompts
+- QueryPreviewCard appears with selected platform rendering
+- No API credits consumed — all mock, all deterministic
+
+**v0.7.6 KQL behavior preserved:**
+- Sentinel adapter's `renderQuery` for all intents produces equivalent KQL to what the backend currently generates
+- `parseKqlScope` / `queryPlanner.ts` unchanged — still used for scope strip display
+
+**Known limitations (forward to Phase 4):**
+- SPL and ES|QL templates not yet wired into the Logs page template panel (templates remain Sentinel/KQL)
+- `generateMockResults` cannot route on SPL/ESQL syntax — always falls back to KQL routing
+- Platform field mappings are representative, not production-validated against real Splunk/Elastic deployments
+- No real connector integration — all mock
 
 ### v0.8.3 — Evidence Manual Actions Finalization
 

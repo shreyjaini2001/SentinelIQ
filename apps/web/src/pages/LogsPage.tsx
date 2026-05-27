@@ -8,6 +8,8 @@ import { getQueryTitle, summarizeQueryResult } from '../utils/querySummary'
 import { QueryResultTable } from '../components/query/QueryResultTable'
 import { EntityChips } from '../components/query/EntityChips'
 import { PivotSuggestions } from '../components/query/PivotSuggestions'
+import { PlatformSelector } from '../components/query/PlatformSelector'
+import { PLATFORM_NAMES, PLATFORM_LANGUAGES, deriveQueryPlanFromKql, renderQuery } from '../utils/siemAdapters'
 import type { ExtractedEntity } from '../utils/mockResults'
 
 const TEMPLATES = [
@@ -79,6 +81,7 @@ export function LogsPage() {
     showSummary, setShowSummary,
     pinned, pinnedFindingText, pinnedInvId, setPinned,
     caseTargetId, setCaseTargetId,
+    selectedPlatform, setSelectedPlatform,
     clearResults,
   } = useLogsStore()
 
@@ -131,15 +134,28 @@ export function LogsPage() {
     if (needsSwitch) openInvestigation(effectiveCaseTargetId)
 
     const title = getQueryTitle(kql)
+    const plan = deriveQueryPlanFromKql(kql.trim())
+    const rendered = renderQuery(plan, selectedPlatform)
     const qId = addArtifact({
       type: 'query',
       title: `Query — ${title}`,
-      data: { kql: kql.trim(), sourceTable: results.sourceTable },
+      data: {
+        kql: kql.trim(),
+        sourceTable: results.sourceTable,
+        sourcePlatform: selectedPlatform,
+        queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
+        renderedQuery: rendered.query,
+      },
     })
     const rId = addArtifact({
       type: 'query_result',
       title: `Query Result — ${title}`,
-      data: results,
+      data: {
+        ...results,
+        sourcePlatform: selectedPlatform,
+        queryLanguage: PLATFORM_LANGUAGES[selectedPlatform],
+        renderedQuery: rendered.query,
+      },
     })
     addTurn({
       user_text: `Ran KQL: ${title}`,
@@ -221,16 +237,17 @@ export function LogsPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-white">Logs</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            KQL console · 24 tables available · Mock connector
+            Query console · {PLATFORM_NAMES[selectedPlatform]} · Mock connector
             {targetInv && (
               <span className="ml-2 text-blue-400">· Case: {targetInv.title}</span>
             )}
           </p>
         </div>
+        <PlatformSelector value={selectedPlatform} onChange={setSelectedPlatform} />
       </div>
 
       {/* Two-column layout */}
@@ -240,7 +257,9 @@ export function LogsPage() {
         <div className="space-y-4">
 
           <section>
-            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">Templates</div>
+            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">
+              Templates <span className="text-gray-700 normal-case font-normal">(Sentinel/KQL)</span>
+            </div>
             <div className="space-y-1">
               {TEMPLATES.map((t) => (
                 <button
@@ -331,7 +350,18 @@ export function LogsPage() {
           <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 overflow-hidden">
             {/* Editor toolbar */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800/60 gap-3">
-              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">KQL Editor</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+                  Query editor
+                </span>
+                <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${
+                  selectedPlatform === 'sentinel' ? 'text-blue-400 border-blue-500/25 bg-blue-500/5' :
+                  selectedPlatform === 'splunk'   ? 'text-orange-400 border-orange-500/25 bg-orange-500/5' :
+                                                    'text-green-400 border-green-500/25 bg-green-500/5'
+                }`}>
+                  {PLATFORM_LANGUAGES[selectedPlatform]}
+                </span>
+              </div>
               <span className="text-[10px] text-gray-700 font-mono">
                 {kql.trim() ? `${kql.split('\n').length}L` : 'Empty'}
               </span>
@@ -341,7 +371,10 @@ export function LogsPage() {
             <textarea
               value={kql}
               onChange={(e) => { setKql(e.target.value); clearResults() }}
-              placeholder="Enter KQL here, or load a template from the left..."
+              placeholder={selectedPlatform === 'sentinel'
+                ? 'Enter KQL here, or load a template from the left…'
+                : `Enter ${PLATFORM_LANGUAGES[selectedPlatform]} here, or use the AI bar to generate a query then switch platform…`
+              }
               rows={10}
               className="w-full bg-transparent text-gray-200 placeholder-gray-700 px-4 py-3 text-xs font-mono resize-none outline-none leading-relaxed"
               spellCheck={false}
