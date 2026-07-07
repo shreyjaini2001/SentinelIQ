@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { submitCommand } from '../utils/commandRunner'
 import { QueryPreviewCard } from '../components/SearchBar/QueryPreviewCard'
 import { AlertTriagePanel } from '../components/panels/AlertTriagePanel'
+import { TriageResultPanel } from '../components/alerts/TriageResultPanel'
 import { HuntResultPanel } from '../components/panels/HuntResultPanel'
 import { TimelinePanel } from '../components/panels/TimelinePanel'
 import { BlastRadiusPanel } from '../components/panels/BlastRadiusPanel'
@@ -10,20 +12,24 @@ import { RuleSuggestionPanel } from '../components/panels/RuleSuggestionPanel'
 import { HandoffBriefingPanel } from '../components/panels/HandoffBriefingPanel'
 import { RunbookPanel } from '../components/panels/RunbookPanel'
 import { NoiseCoachingPanel } from '../components/panels/NoiseCoachingPanel'
+import { ModelModeBadge } from '../components/ai/ModelModeBadge'
+import { ContextUsedPanel } from '../components/ai/ContextUsedPanel'
+import { ExecutionTrace } from '../components/ai/ExecutionTrace'
+import { SaveAiOutputActions } from '../components/ai/SaveAiOutputActions'
+import { AiOutputPanel } from '../components/ai/AiOutputPanel'
+import { buildOrchestrationForAction } from '../utils/aiOrchestrator'
 import { useSessionStore } from '../stores/sessionStore'
+import { useAlertStore } from '../stores/alertStore'
 import type { PageId } from '../components/AppShell/Sidebar'
+import type { AiOrchestrationResult } from '../types/aiOrchestration'
 import type {
   TriageResult, HuntResult, TimelineResult,
   BlastRadiusResult, DocumentationResult, ComparativeResult,
   RuleSuggestionResult, HandoffBriefingResult, RunbookResult, NoiseCoachingResult,
 } from '../types'
+import type { EvidenceSummaryResult, RelationshipInvestigationResult } from '../utils/evidenceActionGenerator'
+import type { ClientTriageResult } from '../types/alerts'
 
-const ALERT_QUEUE = [
-  { label: 'Critical', count: 3,   color: 'text-red-400',    bar: 'bg-red-500',    pct: 15 },
-  { label: 'High',     count: 12,  color: 'text-orange-400', bar: 'bg-orange-500', pct: 40 },
-  { label: 'Medium',   count: 47,  color: 'text-amber-400',  bar: 'bg-amber-500',  pct: 80 },
-  { label: 'Low',      count: 128, color: 'text-gray-400',   bar: 'bg-gray-600',   pct: 100 },
-]
 
 const DEMO_CATEGORIES = [
   {
@@ -129,11 +135,27 @@ function WelcomeState() {
   )
 }
 
-function MainPanel({ onClear }: { onClear: () => void }) {
+// Handlers with embedded ContextUsedPanel + SaveAiOutputActions in the panel itself
+const PANEL_INTEGRATED_HANDLERS = new Set([
+  'documentation', 'handoff',
+  'evidence_summary', 'relationship_investigation',
+])
+
+function MainPanel({
+  onClear,
+  orchestration,
+}: {
+  onClear: () => void
+  orchestration: AiOrchestrationResult | null
+}) {
   const { actionData, currentResult } = useSessionStore()
 
-  if (actionData?.handler === 'triage')
+  if (actionData?.handler === 'triage') {
+    const d = actionData.data as Record<string, unknown>
+    if ('scope' in d)
+      return <TriageResultPanel result={actionData.data as ClientTriageResult} />
     return <AlertTriagePanel result={actionData.data as TriageResult} />
+  }
   if (actionData?.handler === 'hunt')
     return <HuntResultPanel result={actionData.data as HuntResult} />
   if (actionData?.handler === 'timeline')
@@ -141,17 +163,46 @@ function MainPanel({ onClear }: { onClear: () => void }) {
   if (actionData?.handler === 'blast_radius')
     return <BlastRadiusPanel result={actionData.data as BlastRadiusResult} />
   if (actionData?.handler === 'documentation')
-    return <DocumentationPanel result={actionData.data as DocumentationResult} />
+    return <DocumentationPanel result={actionData.data as DocumentationResult} orchestration={orchestration ?? undefined} />
   if (actionData?.handler === 'comparative')
     return <ComparativeAnalysisPanel result={actionData.data as ComparativeResult} />
   if (actionData?.handler === 'rule_suggestion')
     return <RuleSuggestionPanel result={actionData.data as RuleSuggestionResult} />
   if (actionData?.handler === 'handoff')
-    return <HandoffBriefingPanel result={actionData.data as HandoffBriefingResult} />
+    return <HandoffBriefingPanel result={actionData.data as HandoffBriefingResult} orchestration={orchestration ?? undefined} />
   if (actionData?.handler === 'runbook')
     return <RunbookPanel result={actionData.data as RunbookResult} />
   if (actionData?.handler === 'noise_coaching')
     return <NoiseCoachingPanel result={actionData.data as NoiseCoachingResult} />
+
+  if (actionData?.handler === 'evidence_summary' && orchestration) {
+    const r = actionData.data as EvidenceSummaryResult
+    return (
+      <AiOutputPanel
+        title={r.title}
+        summary={r.summary}
+        lines={r.lines}
+        recommended={r.recommended}
+        orchestration={orchestration}
+        badge={r.entityType !== 'unknown' ? r.entityType : undefined}
+      />
+    )
+  }
+
+  if (actionData?.handler === 'relationship_investigation' && orchestration) {
+    const r = actionData.data as RelationshipInvestigationResult
+    return (
+      <AiOutputPanel
+        title={r.title}
+        summary={r.summary}
+        lines={r.lines}
+        recommended={r.recommended}
+        orchestration={orchestration}
+        badge="relationship"
+        badgeClass="text-cyan-400 border-cyan-500/40 bg-cyan-500/10"
+      />
+    )
+  }
 
   if (currentResult)
     return <QueryPreviewCard result={currentResult} onDismiss={onClear} />
@@ -164,8 +215,21 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({ onNavigate }: OverviewPageProps) {
-  const { actionData, currentResult, clear } = useSessionStore()
+  const { actionData, currentResult, clear, submitHistory } = useSessionStore()
+  // Stable primitive selector — alerts array reference only changes on mutations.
+  // Calling s.stats() directly as a selector returns a new object every render,
+  // which trips useSyncExternalStore's getSnapshot check and causes an infinite loop.
+  const alerts = useAlertStore((s) => s.alerts)
+  const alertStats = useMemo(() => {
+    const r = { total: alerts.length, open: 0, investigating: 0, acknowledged: 0, closed: 0, suppressed: 0, false_positive: 0, escalated: 0, critical: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
+    for (const a of alerts) { r[a.status]++; r[a.severity]++ }
+    return r
+  }, [alerts])
   const hasResult = !!(actionData || currentResult)
+
+  const orchestration: AiOrchestrationResult | null = actionData
+    ? buildOrchestrationForAction(actionData.handler, submitHistory[0] ?? '')
+    : null
 
   function clearResult() {
     clear()
@@ -173,18 +237,18 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
 
   return (
     <div className="space-y-5">
-      {/* Stat cards — always visible */}
+      {/* Stat cards — derived from alertStore */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Alerts"    value={190} sub="updated just now"           color="text-white" />
-        <StatCard label="Critical"        value={3}   sub="require immediate action"    color="text-red-400" />
-        <StatCard label="Investigations"  value={2}   sub="active this shift"           color="text-orange-400" />
-        <StatCard label="Active Hunts"    value={1}   sub="in progress"                 color="text-purple-400" />
+        <StatCard label="Total Alerts"   value={alertStats.total}    sub="updated just now"        color="text-white" />
+        <StatCard label="Critical"       value={alertStats.critical}  sub="require immediate action" color="text-red-400" />
+        <StatCard label="Investigations" value={2}                    sub="active this shift"        color="text-orange-400" />
+        <StatCard label="Active Hunts"   value={1}                    sub="in progress"              color="text-purple-400" />
       </div>
 
       {hasResult ? (
-        /* Result workspace — full width, dashboard widgets hidden */
         <div className="space-y-3">
-          <div className="flex items-center gap-3">
+          {/* AI Result header */}
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={clearResult}
               className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
@@ -192,12 +256,34 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
               ← Back to dashboard
             </button>
             <span className="text-gray-700 text-[11px]">·</span>
-            <span className="text-[11px] text-gray-600">AI Result</span>
+            <span className="text-[11px] text-gray-600">
+              {orchestration ? orchestration.intent : 'AI Result'}
+            </span>
+            {orchestration && (
+              <>
+                <span className="text-gray-700 text-[11px]">·</span>
+                <ModelModeBadge orchestration={orchestration} />
+              </>
+            )}
           </div>
-          <MainPanel onClear={clearResult} />
+
+          <MainPanel onClear={clearResult} orchestration={orchestration} />
+
+          {/* Orchestration meta — only for panels that don't embed their own metadata */}
+          {orchestration && actionData && !PANEL_INTEGRATED_HANDLERS.has(actionData.handler) && (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-1.5 mb-1">
+                <div className="w-0.5 h-3 rounded-full bg-purple-500/50" />
+                <span className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest">AI Orchestration</span>
+              </div>
+              <ContextUsedPanel orchestration={orchestration} />
+              <ExecutionTrace orchestration={orchestration} />
+              <SaveAiOutputActions orchestration={orchestration} />
+            </div>
+          )}
         </div>
       ) : (
-        /* Dashboard layout — widgets + welcome/query state */
+        /* Dashboard layout */
         <div className="grid grid-cols-3 gap-5">
 
           {/* Left column — widgets */}
@@ -209,24 +295,32 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
                 <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Alert Queue</h3>
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] text-gray-600">Live</span>
+                  <span className="text-[10px] text-gray-600">Mock</span>
                 </div>
               </div>
               <div className="space-y-2.5">
-                {ALERT_QUEUE.map((item) => (
+                {[
+                  { label: 'Critical', count: alertStats.critical, color: 'text-red-400',    bar: 'bg-red-500' },
+                  { label: 'High',     count: alertStats.high,     color: 'text-orange-400', bar: 'bg-orange-500' },
+                  { label: 'Medium',   count: alertStats.medium,   color: 'text-amber-400',  bar: 'bg-amber-500' },
+                  { label: 'Low',      count: alertStats.low,      color: 'text-gray-400',   bar: 'bg-gray-600' },
+                ].map((item) => (
                   <div key={item.label} className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-400">{item.label}</span>
                       <span className={`text-sm font-mono font-semibold ${item.color}`}>{item.count}</span>
                     </div>
                     <div className="h-1 rounded-full bg-gray-800 overflow-hidden">
-                      <div className={`h-full rounded-full ${item.bar} opacity-60`} style={{ width: `${item.pct}%` }} />
+                      <div
+                        className={`h-full rounded-full ${item.bar} opacity-60`}
+                        style={{ width: `${Math.round((item.count / alertStats.total) * 100)}%` }}
+                      />
                     </div>
                   </div>
                 ))}
               </div>
               <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
-                <span className="text-[10px] text-gray-600">190 total</span>
+                <span className="text-[10px] text-gray-600">{alertStats.total} total · {alertStats.open} open</span>
                 <button
                   onClick={() => onNavigate('alerts')}
                   className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
@@ -285,7 +379,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
 
           {/* Right column — AI workspace / welcome state */}
           <div className="col-span-2 space-y-4">
-            <MainPanel onClear={clearResult} />
+            <MainPanel onClear={clearResult} orchestration={null} />
           </div>
 
         </div>

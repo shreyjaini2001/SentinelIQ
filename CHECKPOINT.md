@@ -178,6 +178,7 @@ Click any of the four buttons on the welcome screen:
 | v0.8.3 | 2026-05-25 | Evidence Manual Actions Finalization — entity note format + confirmation, relationship note composer (see below) |
 | v0.9.0 | 2026-05-26 | Vendor-Agnostic Query Plan and SIEM Adapter Foundation — neutral QueryPlan, Sentinel/Splunk/Elastic adapters, platform selector (see below) |
 | v0.9.1 | 2026-05-26 | QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution (see below) |
+| v1.0.0 | 2026-05-27 | AI Orchestration and Privacy-Aware Context Builder — context assembly, PII redaction, mock orchestrator, execution trace, save actions (see below) |
 
 ### v0.9.0 — Vendor-Agnostic Query Plan and SIEM Adapter Foundation
 
@@ -267,6 +268,220 @@ Click any of the four buttons on the welcome screen:
 - SPL and ES|QL templates not yet wired into the Logs page template panel (templates remain Sentinel/KQL)
 - Platform field mappings are representative, not production-validated against real Splunk/Elastic deployments
 - No real connector integration — all mock
+
+---
+
+### v1.0.0 — AI Orchestration and Privacy-Aware Context Builder
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/aiOrchestration.ts` | New: `AiRedactionPolicy`, `AiContextItem`, `AiContextBundle`, `AiPrivacyFinding`, `AiTraceStep`, `AiExecutionTrace`, `AiOrchestrationResult`, `AiModelProvider` |
+| `apps/web/src/utils/contextBuilder.ts` | New: `buildContextBundle(inv, taskType, policy)` — assembles minimum context per task type from turns/artifacts/notes/findings/entities; `HANDLER_CONTEXT_POLICY` map at module scope |
+| `apps/web/src/utils/privacyRedaction.ts` | New: `applyRedactionToBundle(bundle)` — detects and replaces emails, IPs, hostnames, SHA256 hashes, encoded command lines; `redact_sensitive` policy only, `local_only`/`allow_full_context` pass through |
+| `apps/web/src/utils/mockModelProvider.ts` | New: `AiModelProvider` interface + `MockModelProvider` (deterministic, intent-keyed); TODO stubs for `ClaudeProvider` and `LocalModelProvider` |
+| `apps/web/src/utils/aiOrchestrator.ts` | New: `buildOrchestrationForAction(handler, prompt)` — synchronous; reads `useInvestigationStore.getState()` (Zustand non-React accessor); 6-step trace: classify → select investigation → load context → apply redaction → generate mock → await save |
+| `apps/web/src/components/ai/ModelModeBadge.tsx` | New: three pill badges — model name (purple), redaction policy (amber), "External: Off" (gray) |
+| `apps/web/src/components/ai/ContextUsedPanel.tsx` | New: collapsible — investigation title, per-kind item counts, redaction count, privacy mode, model mode |
+| `apps/web/src/components/ai/ExecutionTrace.tsx` | New: collapsible numbered step list with label + detail per step |
+| `apps/web/src/components/ai/SaveAiOutputActions.tsx` | New: Save as Note (`addNote`), Pin as Finding (`addPinnedFinding`), Copy (clipboard), Dismiss (`sessionStore.clear()`); disabled when `!hasActiveInvestigation` |
+| `apps/web/src/pages/OverviewPage.tsx` | `buildOrchestrationForAction` called at render when `actionData` present; `ModelModeBadge` in AI Result header; `ContextUsedPanel` + `ExecutionTrace` in OrchestrationMeta below MainPanel; `SaveAiOutputActions` in OrchestrationMeta for non-documentation/handoff handlers; `orchestration` passed to `DocumentationPanel` + `HandoffBriefingPanel` |
+| `apps/web/src/pages/ReportsPage.tsx` | `ModelModeBadge` in Generate with AI header; `buildContextBundle` for report context preview showing per-kind item counts and redaction policy |
+| `apps/web/src/components/panels/DocumentationPanel.tsx` | Added `orchestration?: AiOrchestrationResult` prop; when present: `ContextUsedPanel` replaces raw contextMeta text; `SaveAiOutputActions` replaces disabled "Export PDF / Copy Markdown / Send to ITSM" buttons |
+| `apps/web/src/components/panels/HandoffBriefingPanel.tsx` | Added `orchestration?: AiOrchestrationResult` prop; `ContextUsedPanel` + `SaveAiOutputActions` shown at bottom when present |
+| `apps/web/src/App.tsx` | Version bumped to v1.0.0 |
+
+**Architecture:**
+- `buildOrchestrationForAction` is synchronous — no async, no network calls, deterministic per call
+- Uses `useInvestigationStore.getState()` (not React hook) to read store state from a plain utility function
+- `HANDLER_CONTEXT_POLICY` controls which context item kinds are relevant per task type — documentation/handoff get all kinds, query gets only turns + entities
+- Redaction applies only under `redact_sensitive` policy; `local_only` and `allow_full_context` pass through without modification
+- MockModelProvider is a singleton with deterministic output keyed to intent string
+- `PANEL_INTEGRATED_HANDLERS = Set(['documentation', 'handoff'])` — these panels embed their own save actions, so OverviewPage skips the OrchestrationMeta `SaveAiOutputActions` for them
+
+**Privacy model:**
+- `local_only` — no redaction, data stays in browser, no external API calls (mock mode)
+- `redact_sensitive` — PII patterns detected and replaced before context use: `[EMAIL]`, `[IP]`, `[HASH]`, `[HOST]`, `[ENCODED_CMD]`
+- `allow_full_context` — no redaction; reserved for future real-API mode with explicit analyst consent
+
+**Save behavior:**
+- All saves are explicit — no auto-save
+- "Save as Note" calls `addNote()` with `[intent] content.slice(0,500)`
+- "Pin as Finding" calls `addPinnedFinding()` with first sentence of content
+- "Copy" writes raw content/intent to clipboard
+- "Dismiss" calls `sessionStore.clear()` which clears `actionData`, `currentResult`, and `chips`
+- All save buttons disabled when `!hasActiveInvestigation`
+
+**All prior behaviors preserved:**
+- v0.9 QueryPlan / adapter layer unchanged
+- v0.8 Evidence workspace unchanged
+- Logs / query workflow unchanged
+- No new npm packages installed
+- No backend changes
+
+---
+
+## v1.0.1 — Orchestration Routing, AI Output Rendering, Save Actions, Timestamp Consistency, and Report Detail Navigation
+
+**Date:** 2026-05-27  
+**Status:** Complete — 100 modules, zero TS errors, 145/145 pytest passing
+
+### Summary
+
+Fixed the raw JSON output bug for evidence actions, routed all evidence/relationship prompts through the v1.0 AI orchestration layer, added a unified AI output renderer, made report rows clickable with inline detail view, added a deterministic mock timestamp helper, and added compact indicators to the query planner strip.
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/utils/mockClock.ts` | New: `MOCK_NOW = '2026-05-10T08:45:00Z'`, `mockTs()`, `mockFmtDate(iso?)` — single source of truth for fixture timestamps |
+| `apps/web/src/utils/evidenceActionGenerator.ts` | New: `detectEvidenceAction(text)` — regex pattern matching for summarize/investigate prompts; `generateEvidenceSummary(entity)` — pulls from active investigation store + fixture lines; `generateRelationshipInvestigation(from, to)` — fixture-based relationship evidence; `EvidenceSummaryResult` + `RelationshipInvestigationResult` types |
+| `apps/web/src/utils/aiOrchestrator.ts` | Added `evidence_summary` + `relationship_investigation` to `HANDLER_INTENT` and `HANDLER_LABEL` maps |
+| `apps/web/src/utils/contextBuilder.ts` | Added `evidence_summary` + `relationship_investigation` to `HANDLER_CONTEXT_POLICY` (evidence: turn/artifact/finding/entity; relationship: turn/artifact/entity) |
+| `apps/web/src/components/ai/AiOutputPanel.tsx` | New: unified AI output renderer — title, ModelModeBadge in header, summary, evidence lines list, recommended actions list, ContextUsedPanel + ExecutionTrace + SaveAiOutputActions at bottom |
+| `apps/web/src/components/reports/ReportDetailPanel.tsx` | New: deterministic mock report detail — 4 variants (executive/technical/handoff/regulatory) with fixture sections; Copy Markdown + Back button |
+| `apps/web/src/components/SearchBar/ActionOutput.tsx` | Added `isRawJson()` guard — detects `{`/`[` prefix + JSON.parse test; shows "Result available in Overview panel" fallback instead of raw JSON |
+| `apps/web/src/components/SearchBar/SearchBar.tsx` | Added `evidence_summary` + `relationship_investigation` to `hasDedicatedPanel` list |
+| `apps/web/src/components/SearchBar/QueryPreviewCard.tsx` | Added compact `Mock Query Planner · External: Off` indicator to scope strip (right-aligned, gray-700 font-mono) |
+| `apps/web/src/hooks/useSearchBar.ts` | Added client-side intercept block before `api.streamAction()`: calls `detectEvidenceAction()`, generates result locally, calls `setActionData`/`setActionOutput`, records turn+artifact in investigation store, returns without hitting backend; added `evidence_summary`/`relationship_investigation` to `HANDLER_TO_ARTIFACT_TYPE`, `buildArtifactTitle`, `buildResultSummary` |
+| `apps/web/src/pages/OverviewPage.tsx` | Added `AiOutputPanel` import + `EvidenceSummaryResult`/`RelationshipInvestigationResult` types; added `evidence_summary` + `relationship_investigation` cases in `MainPanel`; added both to `PANEL_INTEGRATED_HANDLERS` |
+| `apps/web/src/pages/ReportsPage.tsx` | Removed `setPendingQuery` dependency; generate buttons use `submitCommand` with `report_button` source; report rows changed from `div` to `button` with `onClick → setSelectedReportId`; `ReportDetailPanel` rendered inline when a report is selected; `→` arrow indicator on each row |
+| `apps/web/src/App.tsx` | Version bumped to v1.0.1 |
+
+### Root Cause Fixed
+
+Evidence actions ("Summarize evidence for jsmith@corp.com", "Investigate relationship between X and Y") routed to the backend generic mock handler which returned `{"result":"Mock response","note":"Mock LLM active..."}`. This JSON was passed as `actionOutput` string, and because neither `evidence_summary` nor `relationship_investigation` were in `hasDedicatedPanel`, `ActionOutput.tsx` rendered raw JSON as text.
+
+Fix: client-side intercept in `useSearchBar.ts` matches evidence prompts before calling `api.streamAction()` and generates rich results from the investigation store + fixture data. Both handlers added to `hasDedicatedPanel`. `ActionOutput.tsx` has a secondary JSON guard as safety net.
+
+### Architecture
+
+- `detectEvidenceAction()` uses regex: `/^summarize evidence for (.+)$/i`, `/^investigate relationship between (.+?) and (.+?)$/i`, plus variants — no fuzzy matching
+- `generateEvidenceSummary()` reads `useInvestigationStore.getState()` (non-React Zustand accessor) and augments fixture lines with investigation-derived counts
+- `buildOrchestrationForAction()` is called in OverviewPage at render time (same as v1.0.0) — evidence handlers now have intent/label so the trace shows correct labels
+- `AiOutputPanel` is self-contained: includes its own ContextUsedPanel, ExecutionTrace, SaveAiOutputActions — marked as PANEL_INTEGRATED_HANDLER so OverviewPage's OrchestrationMeta doesn't duplicate them
+
+**Test status:** 145/145 pytest, 100 modules, 439KB bundle (vite v6)
+
+---
+
+## v1.0.2 — Orchestration Metadata Deduplication and Single Source of Truth Cleanup
+
+**Date:** 2026-05-27  
+**Status:** Complete — 100 modules, zero TS errors, 145/145 pytest passing
+
+### Root Cause
+
+`OverviewPage.tsx` rendered an `OrchestrationMeta` block (ContextUsedPanel + ExecutionTrace ± SaveAiOutputActions) for every AI action result. For handlers in `PANEL_INTEGRATED_HANDLERS` (documentation, handoff, evidence_summary, relationship_investigation), the `SaveAiOutputActions` was correctly suppressed — but `ContextUsedPanel` and `ExecutionTrace` were still rendered unconditionally. Meanwhile those same panels (AiOutputPanel, DocumentationPanel, HandoffBriefingPanel) also rendered their own `ContextUsedPanel`. Result: `ContextUsedPanel` shown twice, with the risk of inconsistent item counts if the orchestration object were ever recomputed.
+
+Additionally, `DocumentationPanel` and `HandoffBriefingPanel` embedded `ContextUsedPanel + SaveAiOutputActions` but **not** `ExecutionTrace` — so the 6-step trace was only visible via the parent block, meaning suppressing the parent would have hidden it.
+
+### Fix
+
+Three targeted changes, no architectural redesign:
+
+1. **`OverviewPage.tsx`**: Changed the OrchestrationMeta block condition from `{orchestration && ...}` to `{orchestration && actionData && !PANEL_INTEGRATED_HANDLERS.has(actionData.handler) && ...}` — the entire block (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) is now skipped for any handler that owns its own metadata. The now-redundant inner `!PANEL_INTEGRATED_HANDLERS` guard on `SaveAiOutputActions` was removed (outer guard makes it dead code).
+
+2. **`DocumentationPanel.tsx`**: Added `ExecutionTrace` import and rendering alongside `ContextUsedPanel + SaveAiOutputActions`. The panel now owns all three orchestration components and is self-contained.
+
+3. **`HandoffBriefingPanel.tsx`**: Same — added `ExecutionTrace` to the existing `ContextUsedPanel + SaveAiOutputActions` block.
+
+### Rendering contract post-fix
+
+| Handler | Owns metadata in panel | Parent OrchestrationMeta |
+|---------|----------------------|--------------------------|
+| evidence_summary | AiOutputPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions + ModelModeBadge) | Suppressed |
+| relationship_investigation | AiOutputPanel (same) | Suppressed |
+| documentation | DocumentationPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) | Suppressed |
+| handoff | HandoffBriefingPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) | Suppressed |
+| triage / hunt / timeline / blast_radius / comparative / rule_suggestion / runbook / noise_coaching | None | Rendered once |
+
+### Same orchestration object
+
+All panels receive the same `orchestration` object prop (computed once in `OverviewPage` via `buildOrchestrationForAction`). No recomputation — counts are always consistent.
+
+### Known limitations
+
+None. All 10 action handlers verified to show metadata exactly once.
+
+**Test status:** 145/145 pytest, 100 modules, 439KB bundle (vite v6)
+
+---
+
+## v1.1.0 — Unified Mock SOC Data Layer, Alert Operations, and Triage Scope Correctness
+
+**Date:** 2026-05-27  
+**Status:** Complete — 104 modules, zero TS errors, 145/145 pytest passing
+
+### Summary
+
+Replaced the 12-alert hardcoded fixture with a deterministic 190-alert mock dataset. Built a reactive alert store, scope-aware client-side triage engine, and full AlertsPage rewrite with status tabs, selection, and Load More pagination. Triage prompts now intercept client-side (same pattern as evidence actions) and produce a `ClientTriageResult` with real alert data routed through the new `TriageResultPanel`.
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/alerts.ts` | **New** — `MockAlert`, `AlertSeverity`, `AlertStatus`, `AlertEntityType`, `AlertTriageScopeType`, `TriageDisposition`, `AlertStats`, `AlertTriageScope`, `EnrichedTriageVerdict`, `ClientTriageResult` |
+| `apps/web/src/data/mockSocData.ts` | **New** — 12 anchor alerts (ALT-001–ALT-012, matching existing investigationStore fixture IDs) + 178 synthetically generated from 10 rule templates cycling 16 entities; sorted newest-first; `ALERT_BY_ID` lookup map |
+| `apps/web/src/stores/alertStore.ts` | **New** — Zustand store: `alerts`, `filters`, `visibleCount`, `selectedIds`; computed selectors: `filteredAlerts()`, `visibleAlerts()`, `stats()`, `openCount()`, `hasMore()`, `getTriageAlerts(scope)`; mutations: `setStatusFilter`, `setSeverityFilter`, `loadMore`, `toggleSelection`, `selectAll`, `clearSelection`, `applyStatusChange` |
+| `apps/web/src/utils/alertTriageEngine.ts` | **New** — `detectTriageScope(text)` regex intercept; `triageAlerts(alerts, scope)` deterministic scoring from 13 detection rule patterns; `buildStatusChanges(result)` for batch status application; `EnrichedTriageVerdict` with `tp_probability`, `fp_probability`, `confidence`, `reasoning`, `influencing_fields`, `suggestedStatus` |
+| `apps/web/src/components/alerts/TriageResultPanel.tsx` | **New** — `ClientTriageResult` renderer; scope badge in header; TP/Uncertain/FP stat row; per-alert verdict rows with alert name + entity (not UUID); per-row Mark Investigating / Mark FP / Close buttons; "Apply Triage Decisions" batch footer button; Load more for >15 verdicts |
+| `apps/web/src/pages/AlertsPage.tsx` | **Rewritten** — uses `alertStore`; status tabs (All/Open/Investigating/Acknowledged/Closed/FP) with live counts; severity filter pills; checkbox selection with Select visible / Clear N selected controls; Detection Rule column (hidden on small screens); Load More pagination; Triage visible / Triage all open / Triage N selected header buttons using `submitCommand` |
+| `apps/web/src/pages/OverviewPage.tsx` | Removed static `ALERT_QUEUE` array; added `useAlertStore` — stat cards and alert queue widget derive from `alertStats`; `MainPanel` triage routing: `'scope' in d` → `TriageResultPanel`, else `AlertTriagePanel` (backend fallback) |
+| `apps/web/src/components/AppShell/Sidebar.tsx` | `NAV_MAIN` moved to `NAV_MAIN_BASE` (no badge); `openCount` from `useAlertStore` injected at render time as alert badge; updates reactively when triage decisions are applied |
+| `apps/web/src/hooks/useSearchBar.ts` | Added triage client-side intercept block after evidence intercept: `detectTriageScope(text)` → `getTriageAlerts(scope)` → `triageAlerts(alerts, scope)` → `setActionData`; records turn+artifact in active investigation; returns before `api.streamAction()` |
+| `apps/web/src/App.tsx` | Version bumped to v1.1.0 |
+
+### Architecture
+
+**Client-side triage intercept (same pattern as v1.0.1 evidence intercept):**
+- `detectTriageScope(text)` returns `'visible_open' | 'all_open' | 'selected'` or `null`
+- Scope routing: "selected" → `selectedIds`; "visible" → `visibleAlerts()` filtered to open; else → all open
+- No backend round-trip; `api.streamAction()` never called for triage prompts
+- Result type is `ClientTriageResult` which has `scope` field — discriminant from backend `TriageResult`
+- `OverviewPage.MainPanel` distinguishes: `'scope' in d` routes to `TriageResultPanel`, else falls back to old `AlertTriagePanel`
+
+**Alert lifecycle:**
+- `applyStatusChange(ids, status)` in alertStore mutates alert statuses in-memory
+- Sidebar badge recalculates `openCount()` after apply — decrements as TPs become Investigating
+- Per-row individual overrides also call `applyStatusChange` immediately
+
+**190-alert dataset:**
+- ALT-001–ALT-012: anchor alerts with `linkedInvestigationId` matching `INV-001`/`INV-002` in investigationStore
+- ALT-013–ALT-190: 10 rule templates × cycling USER_ENTITIES (8) + HOST_ENTITIES (8); status from `STATUS_CYCLE` array (predominantly open, with occasional investigating/acknowledged/fp/closed); timestamps spread over 72h window before MOCK_NOW; risk/confidence derived from template base + index variance
+
+**Scoring rules (13 patterns):**
+- impossible/travel → 90% TP (high confidence)
+- credential/dump/lsass → 88% TP (high)
+- c2/beacon/outbound → 82% TP (high)
+- lateral/smb → 79% TP (high)
+- privesc/token → 76% TP (high)
+- encoded/powershell → 68% TP (medium)
+- geo/anomaly/country → 65% TP (medium)
+- mfa/spray → 42% TP (medium)
+- oauth/consent → 38% TP (medium)
+- new service account → 30% TP (medium)
+- password/reset → 22% TP → likely_fp (high)
+- suspicious/signin → 28% TP → likely_fp (low)
+- port/nonstandard → 20% TP → likely_fp (low)
+- fallback → 45% TP (low)
+
+**suggestedStatus logic:**
+- `status === 'open' && tp ≥ 70` → `'investigating'`
+- `status === 'open' && fp ≥ 70` → `'false_positive'`
+- else → unchanged
+
+### Preserved behaviors
+
+- v0.7 Logs/query workflow unchanged
+- v0.8 Evidence workspace unchanged
+- v0.9 QueryPlan/adapters unchanged
+- v1.0 AI orchestration/context panels unchanged
+- Backend `AlertTriagePanel` (backend TriageResult fallback) preserved and tested
+- Backend `triage_handler.py` unchanged — 145/145 pytest still passing
+
+**Test status:** 145/145 pytest, 104 modules, 464KB bundle (vite v6)
 
 ---
 

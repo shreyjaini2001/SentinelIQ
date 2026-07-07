@@ -268,6 +268,8 @@ export function QueryPreviewCard({ result, onDismiss, onOpenInLogs }: Props) {
           <span className="text-[10px] text-gray-600 font-mono">{rendered.sourceName}</span>
           <span className="text-gray-700 text-[10px]">·</span>
           <span className="text-[10px] text-gray-600">{scope.timeAgo === 'N/A' ? 'no time filter' : `last ${scope.timeAgo}`}</span>
+          <span className="text-gray-700 text-[10px] ml-auto">·</span>
+          <span className="text-[9px] text-gray-700 font-mono shrink-0">Mock Query Planner · External: Off</span>
         </div>
       )}
 

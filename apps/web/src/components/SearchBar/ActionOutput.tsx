@@ -2,8 +2,29 @@ interface Props {
   output: string
 }
 
+function isRawJson(output: string): boolean {
+  const trimmed = output.trim()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false
+  try { JSON.parse(trimmed); return true } catch { return false }
+}
+
 export function ActionOutput({ output }: Props) {
-  // Simple markdown-like rendering
+  // Guard: raw JSON responses from the mock backend should never be shown as-is
+  if (isRawJson(output)) {
+    return (
+      <div className="rounded-xl border border-gray-700/60 bg-gray-900/70 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-500/60" />
+          <span className="text-xs text-purple-400 font-medium">AI Result</span>
+          <span className="text-[10px] text-gray-600 font-mono">Mock mode</span>
+        </div>
+        <p className="text-sm text-gray-400">
+          Result available — navigate to the <span className="text-gray-300">Overview</span> panel to view.
+        </p>
+      </div>
+    )
+  }
+
   const lines = output.split('\n')
   const rendered = lines.map((line, i) => {
     if (line.startsWith('## ')) {

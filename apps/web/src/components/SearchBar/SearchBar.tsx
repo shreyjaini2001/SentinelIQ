@@ -36,6 +36,7 @@ export function SearchBar() {
     'triage', 'hunt', 'timeline',
     'blast_radius', 'documentation', 'comparative', 'rule_suggestion',
     'handoff', 'runbook', 'noise_coaching',
+    'evidence_summary', 'relationship_investigation',
   ].includes(actionData?.handler ?? '')
   const actionError = !actionData && !isActionRunning && actionProgress?.startsWith('Error:')
   const inputRef = useRef<HTMLTextAreaElement>(null)

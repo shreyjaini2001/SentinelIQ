@@ -6,29 +6,41 @@ import * as api from '../api/client'
 import type { ClassifyResult, ActionProgressEvent, Mode } from '../types'
 import type { ArtifactType } from '../types/investigation'
 import { registerDispatch, registerSetText } from '../utils/commandRunner'
+import {
+  detectEvidenceAction,
+  generateEvidenceSummary,
+  generateRelationshipInvestigation,
+} from '../utils/evidenceActionGenerator'
+import { buildOrchestrationForAction } from '../utils/aiOrchestrator'
+import { detectTriageScope, triageAlerts } from '../utils/alertTriageEngine'
+import { useAlertStore } from '../stores/alertStore'
 
 const HANDLER_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
-  triage:     'alert_triage',
-  hunt:       'hunt',
-  timeline:   'timeline',
-  blast_radius: 'blast_radius',
-  comparative: 'comparative_analysis',
-  rule_suggestion: 'rule_suggestion',
-  documentation: 'documentation',
-  handoff:    'handoff',
-  runbook:    'runbook',
-  noise_coaching: 'noise_coaching',
+  triage:                     'alert_triage',
+  hunt:                       'hunt',
+  timeline:                   'timeline',
+  blast_radius:               'blast_radius',
+  comparative:                'comparative_analysis',
+  rule_suggestion:            'rule_suggestion',
+  documentation:              'documentation',
+  handoff:                    'handoff',
+  runbook:                    'runbook',
+  noise_coaching:             'noise_coaching',
+  evidence_summary:           'documentation',
+  relationship_investigation: 'documentation',
 }
 
 function buildArtifactTitle(handler: string, data: unknown, submittedText: string): string {
   if (!data || typeof data !== 'object') return `${handler}: ${submittedText.slice(0, 60)}`
   const d = data as Record<string, unknown>
   switch (handler) {
-    case 'documentation':  return String(d.title ?? submittedText.slice(0, 60))
-    case 'handoff':        return `Handoff Briefing — ${String(d.shift_window ?? 'Current Shift')}`
-    case 'runbook':        return `Runbook — ${String(d.title ?? submittedText.slice(0, 40))}`
-    case 'noise_coaching': return `Noise Coaching — ${String(d.rule_name ?? submittedText.slice(0, 40))}`
-    default:               return `${handler}: ${submittedText.slice(0, 60)}`
+    case 'documentation':              return String(d.title ?? submittedText.slice(0, 60))
+    case 'handoff':                    return `Handoff Briefing — ${String(d.shift_window ?? 'Current Shift')}`
+    case 'runbook':                    return `Runbook — ${String(d.title ?? submittedText.slice(0, 40))}`
+    case 'noise_coaching':             return `Noise Coaching — ${String(d.rule_name ?? submittedText.slice(0, 40))}`
+    case 'evidence_summary':           return String(d.title ?? `Evidence Summary: ${submittedText.slice(0, 40)}`)
+    case 'relationship_investigation': return String(d.title ?? `Relationship: ${submittedText.slice(0, 40)}`)
+    default:                           return `${handler}: ${submittedText.slice(0, 60)}`
   }
 }
 
@@ -36,17 +48,19 @@ function buildResultSummary(handler: string, data: unknown): string {
   if (!data || typeof data !== 'object') return handler
   const d = data as Record<string, unknown>
   switch (handler) {
-    case 'triage':          return `Triage: ${d.likely_tp ?? '?'} TP, ${d.likely_fp ?? '?'} FP of ${d.total_alerts ?? '?'}`
-    case 'hunt':            return `Hunt: ${d.techniques_with_evidence ?? '?'}/${d.techniques_queried ?? '?'} techniques with evidence`
-    case 'timeline':        return `Timeline: ${d.total_events ?? '?'} events`
-    case 'blast_radius':    return `Blast radius: ${d.total_reachable_assets ?? '?'} assets, risk ${d.risk_score ?? '?'}/10`
-    case 'comparative':     return `Comparative: deviation score ${d.overall_deviation_score ?? '?'}`
-    case 'rule_suggestion': return `Rule: ${String(d.rule_name ?? 'suggestion generated')}`
-    case 'documentation':   return `Report: ${String(d.variant ?? '')} — ${String(d.title ?? '')}`
-    case 'handoff':         return `Handoff: ${Array.isArray(d.open_items) ? d.open_items.length : '?'} open items`
-    case 'runbook':         return `Runbook: ${String(d.title ?? 'generated')}`
-    case 'noise_coaching':  return `Noise coaching: ${d.estimated_alert_reduction_pct ?? '?'}% alert reduction`
-    default:                return handler
+    case 'triage':                     return `Triage: ${d.likely_tp ?? '?'} TP, ${d.likely_fp ?? '?'} FP of ${d.total_alerts ?? '?'}`
+    case 'hunt':                       return `Hunt: ${d.techniques_with_evidence ?? '?'}/${d.techniques_queried ?? '?'} techniques with evidence`
+    case 'timeline':                   return `Timeline: ${d.total_events ?? '?'} events`
+    case 'blast_radius':               return `Blast radius: ${d.total_reachable_assets ?? '?'} assets, risk ${d.risk_score ?? '?'}/10`
+    case 'comparative':                return `Comparative: deviation score ${d.overall_deviation_score ?? '?'}`
+    case 'rule_suggestion':            return `Rule: ${String(d.rule_name ?? 'suggestion generated')}`
+    case 'documentation':              return `Report: ${String(d.variant ?? '')} — ${String(d.title ?? '')}`
+    case 'handoff':                    return `Handoff: ${Array.isArray(d.open_items) ? d.open_items.length : '?'} open items`
+    case 'runbook':                    return `Runbook: ${String(d.title ?? 'generated')}`
+    case 'noise_coaching':             return `Noise coaching: ${d.estimated_alert_reduction_pct ?? '?'}% alert reduction`
+    case 'evidence_summary':           return `Evidence: ${String(d.entity ?? 'entity')} — ${Array.isArray(d.lines) ? d.lines.length : '?'} indicators`
+    case 'relationship_investigation': return `Relationship: ${String(d.fromEntity ?? '?')} → ${String(d.toEntity ?? '?')}`
+    default:                           return handler
   }
 }
 
@@ -173,6 +187,69 @@ export function useSearchBar() {
 
       // Abort any in-flight action from a previous submission
       if (abortActionRef.current) abortActionRef.current()
+
+      // ── Client-side intercept for evidence actions (no backend round-trip needed)
+      const evidenceMatch = detectEvidenceAction(submittedText)
+      if (evidenceMatch) {
+        const result =
+          evidenceMatch.type === 'entity_summary'
+            ? generateEvidenceSummary(evidenceMatch.entity)
+            : generateRelationshipInvestigation(evidenceMatch.fromEntity, evidenceMatch.toEntity)
+
+        setActionOutput(' ')
+        setActionData({ handler: result.handler, data: result })
+
+        const invStore = useInvestigationStore.getState()
+        if (invStore.activeInvestigationId) {
+          const artifactId = invStore.addArtifact({
+            type: 'documentation',
+            title: buildArtifactTitle(result.handler, result, submittedText),
+            data: result,
+          })
+          invStore.addTurn({
+            user_text: submittedText,
+            mode: 'action',
+            result_summary: buildResultSummary(result.handler, result),
+            artifact_ids: artifactId ? [artifactId] : [],
+          })
+        }
+
+        // Build and discard orchestration (OverviewPage builds fresh on render)
+        buildOrchestrationForAction(result.handler, submittedText)
+
+        setActionProgress(null)
+        setActionRunning(false)
+        return
+      }
+
+      // ── Client-side intercept for triage actions (scope-aware, no backend round-trip)
+      const triageScopeType = detectTriageScope(submittedText)
+      if (triageScopeType) {
+        const alertsInScope = useAlertStore.getState().getTriageAlerts(triageScopeType)
+        const triageResult = triageAlerts(alertsInScope, triageScopeType)
+
+        setActionOutput(' ')
+        setActionData({ handler: 'triage', data: triageResult })
+
+        const invStore = useInvestigationStore.getState()
+        if (invStore.activeInvestigationId) {
+          const artifactId = invStore.addArtifact({
+            type: 'alert_triage',
+            title: `Triage: ${triageResult.scope.scopeLabel} — ${triageResult.total_alerts} alerts`,
+            data: triageResult,
+          })
+          invStore.addTurn({
+            user_text: submittedText,
+            mode: 'action',
+            result_summary: `Triage: ${triageResult.likely_tp} TP, ${triageResult.likely_fp} FP of ${triageResult.total_alerts}`,
+            artifact_ids: artifactId ? [artifactId] : [],
+          })
+        }
+
+        setActionProgress(null)
+        setActionRunning(false)
+        return
+      }
 
       // Increment token — old stream callbacks will see a mismatch and exit
       const token = ++actionTokenRef.current

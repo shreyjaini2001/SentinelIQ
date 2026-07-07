@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { useAlertStore } from '../../stores/alertStore'
 
 export type PageId =
   | 'overview' | 'alerts' | 'investigations' | 'investigation-workspace'
@@ -8,9 +9,9 @@ export type PageId =
 
 interface NavItem { id: PageId; label: string; icon: string; badge?: number }
 
-const NAV_MAIN: NavItem[] = [
+const NAV_MAIN_BASE: Omit<NavItem, 'badge'>[] = [
   { id: 'overview',       label: 'Overview',      icon: '⊞' },
-  { id: 'alerts',         label: 'Alerts',         icon: '◉', badge: 190 },
+  { id: 'alerts',         label: 'Alerts',         icon: '◉' },
   { id: 'investigations', label: 'Investigations', icon: '◈' },
   { id: 'logs',           label: 'Logs',           icon: '⊟' },
   { id: 'hunts',          label: 'Hunts',          icon: '⊕' },
@@ -63,8 +64,13 @@ function NavBtn({ item, active, onClick }: { item: NavItem; active: boolean; onC
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const { investigations, activeInvestigationId, openInvestigation, closeActiveInvestigation } = useInvestigationStore()
+  const openCount = useAlertStore((s) => s.openCount())
   const activeInv = investigations.find((i) => i.id === activeInvestigationId)
   const [showCaseSelector, setShowCaseSelector] = useState(false)
+
+  const NAV_MAIN: NavItem[] = NAV_MAIN_BASE.map((item) =>
+    item.id === 'alerts' ? { ...item, badge: openCount } : item,
+  )
 
   // Investigations nav item is highlighted when on either the list or the workspace
   const isInvActive =
