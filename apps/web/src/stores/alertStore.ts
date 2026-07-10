@@ -42,6 +42,11 @@ interface AlertStoreState {
   linkAlertsToCase: (ids: string[], caseId: string, caseTitle: string) => void
   /** Revert an alert to the previous status from its latest status-change audit event. */
   undoLastAction: (id: string) => void
+  // Workspace-memory hydration (does NOT touch alert data — UI selection/filter state only)
+  /** Restore per-workspace UI state (filters, Load-More count, selection) on workspace entry. */
+  hydrateUi: (ui: { status?: AlertStatus | 'all'; severity?: AlertSeverity | 'all'; visibleCount?: number; selectedIds?: string[] }) => void
+  /** Reset UI state to defaults (used when entering Scratch — keeps Scratch fresh). */
+  resetUi: () => void
 }
 
 export const useAlertStore = create<AlertStoreState>()((set, get) => ({
@@ -157,6 +162,21 @@ export const useAlertStore = create<AlertStoreState>()((set, get) => ({
       }),
     })
   },
+
+  hydrateUi: (ui) => {
+    const { filters } = get()
+    set({
+      filters: {
+        status: ui.status ?? filters.status,
+        severity: ui.severity ?? filters.severity,
+      },
+      visibleCount: Math.max(PAGE_SIZE, ui.visibleCount ?? PAGE_SIZE),
+      selectedIds: new Set(ui.selectedIds ?? []),
+    })
+  },
+
+  resetUi: () =>
+    set({ filters: { status: 'all', severity: 'all' }, visibleCount: PAGE_SIZE, selectedIds: new Set() }),
 
   undoLastAction: (id) => {
     const alert = get().alerts.find((a) => a.id === id)

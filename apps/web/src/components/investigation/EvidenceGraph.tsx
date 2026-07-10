@@ -5,6 +5,7 @@ import type { EvidenceNode, EvidenceRelationship, InvestigationGap } from '../..
 import { deriveEvidence } from '../../utils/evidenceGraph'
 import { submitCommand } from '../../utils/commandRunner'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { PLATFORM_NAMES } from '../../utils/siemAdapters'
 
 const NODE_COLOR: Record<string, string> = {
@@ -637,8 +638,14 @@ interface Props {
 }
 
 export function EvidenceGraph({ inv, onNavigateToArtifact }: Props) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [expandedRelId,  setExpandedRelId]  = useState<string | null>(null)
+  // Restore the last-selected evidence node / expanded relationship from this case's
+  // workspace checkpoint (validated below against the derived nodes — a stale id is dropped).
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+    () => useWorkspaceStore.getState().getWorkspace(inv.id).evidenceState?.selectedEntityNodeId ?? null,
+  )
+  const [expandedRelId,  setExpandedRelId]  = useState<string | null>(
+    () => useWorkspaceStore.getState().getWorkspace(inv.id).evidenceState?.expandedRelId ?? null,
+  )
   const { toggleReviewedEntity } = useInvestigationStore()
 
   // Persist reviewed state in investigation store (survives tab navigation)
@@ -650,12 +657,18 @@ export function EvidenceGraph({ inv, onNavigateToArtifact }: Props) {
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
 
-  // Close detail panel if selected node no longer exists
+  // Close detail panel if selected node no longer exists (also validates a restored id)
   useEffect(() => {
     if (selectedNodeId && !nodes.find((n) => n.id === selectedNodeId)) {
       setSelectedNodeId(null)
     }
   }, [nodes, selectedNodeId])
+
+  // Record the current evidence selection into this case's workspace checkpoint. Evidence is
+  // always case-scoped (only rendered for an active investigation), so no Scratch guard needed.
+  useEffect(() => {
+    useWorkspaceStore.getState().patchEvidenceState(inv.id, { selectedEntityNodeId: selectedNodeId, expandedRelId })
+  }, [inv.id, selectedNodeId, expandedRelId])
 
   // Group nodes by type for the sidebar
   const groupedNodes = useMemo(() => {

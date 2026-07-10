@@ -4,7 +4,7 @@ import { useInvestigationStore } from '../../stores/investigationStore'
 import { useAlertStore } from '../../stores/alertStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import { workspaceIdFor, snapshotWorkspaceLogs, restoreWorkspaceLogs } from '../../utils/workspaceMemory'
+import { workspaceIdFor, snapshotCurrentWorkspace, restoreWorkspace } from '../../utils/workspaceMemory'
 import { SCRATCH_WORKSPACE_ID, type WorkspacePageId } from '../../types/workspace'
 
 export type PageId =
@@ -89,11 +89,11 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     // restore the incoming workspace (Scratch is always reset fresh; a case restores its
     // checkpoint). Investigation memory is never touched here.
     ws.setLastPage(outgoing, currentPage as WorkspacePageId)
-    snapshotWorkspaceLogs(outgoing)
+    snapshotCurrentWorkspace(outgoing)
     useSessionStore.getState().clear() // close overlay + clear transient command result
     if (targetId) openInvestigation(targetId)
     else closeActiveInvestigation()
-    restoreWorkspaceLogs(incoming)
+    restoreWorkspace(incoming)
     setShowCaseSelector(false)
     const restored = ws.getWorkspace(incoming).lastPage
     onNavigate(restored ?? (targetId ? 'investigation-workspace' : 'overview'))

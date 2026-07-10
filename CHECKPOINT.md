@@ -795,6 +795,99 @@ Two parts. **(a) Workspace switcher + memory:** the active-case card is a real w
 
 ---
 
+## v1.1.6 — Workspace Memory Coverage for Alerts, Evidence, Reports, Hunts, and Selected Case State
+
+**Date:** 2026-07-10  
+**Status:** Complete — 121 modules, zero TS errors, 145/145 pytest passing. Workspace-continuity coverage patch (still frontend/local memory — no DB).
+
+Extends v1.1.5's per-workspace memory (which covered only `lastPage`, investigation tab, and Logs editor) to the remaining main SOC surfaces: **Alerts** filters/selection/detail, **Evidence** node/relationship selection, **Reports** context/selected report, and **Hunts** template/recent-hunt selection. Scratch stays ephemeral everywhere. The active case remains a context lens + default save target — nothing auto-saves/links/pins.
+
+### Audit of v1.1.5 `CaseWorkspaceState` (starting point)
+
+| Field | Was |
+|-------|-----|
+| `lastPage` | ✅ working (App + Sidebar) |
+| `lastInvestigationTab` | ✅ working (InvestigationWorkspacePage) |
+| `logsState` (kql/platform/caseTarget) | ✅ working (snapshot/restore); `lastResultId` unused |
+| `selectedEntityId` / `selectedAlertId` / `selectedArtifactId` / `selectedReportId` (top-level) | ❌ defined, never written/read |
+| `alertsState` / `reportsState` | ❌ defined, never written/read |
+| Hunts / Rules page state | ❌ fully static (no selection state) |
+
+### Two mechanisms (by state ownership)
+
+1. **Global-store-backed surfaces → centralized snapshot/restore** (`utils/workspaceMemory.ts`), called on workspace switch (Sidebar) + launch (App):
+   - **Logs editor** (`snapshotWorkspaceLogs`/`restoreWorkspaceLogs`, from v1.1.5).
+   - **Alerts UI state** (`snapshotWorkspaceAlerts`/`restoreWorkspaceAlerts`, new): status filter, severity filter, Load-More `visibleCount`, and selected alert ids — all held in the global `alertStore`. Alert *data* (statuses, audit trail, links) is global SOC state and is **never** workspace-scoped.
+   - Unified entry points: **`snapshotCurrentWorkspace(id)`** and **`restoreWorkspace(id)`** compose the above. Scratch → reset to fresh defaults.
+2. **Page-local ephemeral selections → owned by the page** (read checkpoint on mount, validated; record on change; skip persistence in Scratch):
+   - **Alerts** open detail panel (`AlertsPage`, `alertsState.detailAlertId`).
+   - **Evidence** selected node + expanded relationship (`EvidenceGraph`, new `evidenceState`).
+   - **Reports** context + selected report (`ReportsPage`, `reportsState`).
+   - **Hunts** selected template + recent hunt (`HuntsPage`, new `huntsState`).
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/utils/workspaceRestoreGuards.ts` | Restore-validation guards — `isValidAlertId`, `isValidInvestigationId`, `filterValidAlertIds`, `coerceStatusFilter`, `coerceSeverityFilter`. Non-reactive `getState()` reads, safe in `useState` initializers/effects. A stale/removed id or bad enum is dropped so restore can never crash a page or show a dangling detail panel. |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/workspace.ts` | Extended `CaseWorkspaceAlertsState` (`visibleCount`, `detailAlertId`); `reportsState` ids made nullable; added `CaseWorkspaceEvidenceState` (`selectedEntityNodeId`, `expandedRelId`) + `CaseWorkspaceHuntsState` (`selectedHuntPrompt`, `selectedHuntId`) and wired both onto `CaseWorkspaceState`. |
+| `apps/web/src/stores/workspaceStore.ts` | Added nested shallow-merge setters `patchAlertsState` / `patchReportsState` / `patchEvidenceState` / `patchHuntsState` so partial sub-state updates never clobber siblings. |
+| `apps/web/src/stores/alertStore.ts` | Added `hydrateUi({status,severity,visibleCount,selectedIds})` and `resetUi()` — UI-only hydration/reset (never touches alert data). |
+| `apps/web/src/utils/workspaceMemory.ts` | Added `snapshotWorkspaceAlerts`/`restoreWorkspaceAlerts` + unified `snapshotCurrentWorkspace`/`restoreWorkspace`. |
+| `apps/web/src/components/AppShell/Sidebar.tsx` | `switchWorkspace` now calls `snapshotCurrentWorkspace(outgoing)` / `restoreWorkspace(incoming)` (was Logs-only). |
+| `apps/web/src/App.tsx` | Launch guard resets the whole scratch workspace (`restoreWorkspace('scratch')`); version label → **v1.1.6**. |
+| `apps/web/src/pages/AlertsPage.tsx` | Detail panel (`detailAlertId`) restored per case (validated) and recorded on change; Scratch starts with no detail. |
+| `apps/web/src/components/investigation/EvidenceGraph.tsx` | Selected node + expanded relationship restored from the case checkpoint (existing node-existence effect validates a stale id) and recorded on change. |
+| `apps/web/src/pages/ReportsPage.tsx` | Report context + selected report restored per workspace (context validated; unset defaults to active case; Scratch → none) and recorded on change. |
+| `apps/web/src/pages/HuntsPage.tsx` | Added lightweight `selectedHuntPrompt`/`selectedHuntId` selection with highlight; restored per case and recorded on change; Scratch → neutral templates. |
+
+### How each surface behaves
+
+- **Alerts** — filters (status/severity), Load-More count, and selection restore on entering a case; the open detail panel restores too (validated — a removed alert is ignored). Entering Scratch resets filters to default and clears selection/detail. Alert lifecycle decisions and audit trail remain in `alertStore` (global), not workspace memory; in-progress triage workspace is **not** auto-restored.
+- **Evidence** — reopening a case reopens the previously selected entity (e.g. DESKTOP-42) and expanded relationship if still valid. Evidence is inherently case-scoped: Scratch has no active case, so the investigation workspace shows "No investigation selected" — no stale jsmith evidence.
+- **Reports** — reopening a case restores its report context and open report detail. Scratch shows "— No report context (choose a case) —" and does not auto-use the last case; generating a case-specific report still requires selecting one.
+- **Hunts** — reopening a case restores the selected hunt template / recent hunt (highlighted). Scratch resets to neutral templates with no case-specific hunt. Only lightweight prompt/template + recent-hunt id are stored — **no** hunt result payloads (saved hunt outputs become investigation artifacts through the normal action flow).
+
+### Rules — deferred (documented)
+
+`RulesPage` is a static fixture table whose only interactions are "Tune →" prompts routed to the AI bar via `setPendingQuery`. There is no selected-rule detail view or noise-coaching result surface to remember, so per-workspace Rules memory would store nothing meaningful. **Deferred** until Rules gains a selectable rule detail / noise-coaching result (candidate for a later patch).
+
+### Scratch stays ephemeral
+
+Switching into Scratch (and fresh launch) runs `restoreWorkspace('scratch')` → resets the Logs editor (empty, scratch target) and Alerts filters/selection to defaults. All page-local persisters **skip writes when the workspace is Scratch**, and all restore initializers return defaults for Scratch — so no case-selected alert detail, evidence node, report context, or hunt selection ever appears in Scratch, and Scratch never restores a prior scratch checkpoint.
+
+### Intentionally NOT restored (transient)
+
+Command-palette overlay open state, autocomplete suggestions, running/loading state, unsaved AI output panels, query preview overlays, and backend error messages — all transient and closed on workspace switch (`sessionStore.clear()`), never persisted. Logs query **results** and hunt **result payloads** are also never snapshotted (heavy / re-run cheaply).
+
+### Restore validation (no stale crashes)
+
+Every restored id is validated before use: alert ids via `isValidAlertId`/`filterValidAlertIds` (alert store), investigation/report-context ids via `isValidInvestigationId`, report ids against the report fixture, evidence node ids against derived nodes (existing cleanup effect), and persisted filter values coerced via `coerceStatusFilter`/`coerceSeverityFilter`. Invalid values are dropped and the page falls back to its default view.
+
+### Preserved (no regressions)
+
+- Scratch-first landing, per-workspace Logs restore, alert triage workspace/detail/lifecycle, command overlay reliability, Evidence graph, QueryPlan/adapters, and AI orchestration panels — all unchanged. Workspace reads stay non-reactive `getState()` in effects/initializers (no getSnapshot loop). Backend untouched (145/145).
+
+### Known limitations
+
+- Alerts filters/selection are restored via the global `alertStore` on switch; the open detail panel restores when the analyst navigates back to the Alerts page (page-local). In-progress triage workspace results are not restored by design.
+- Hunts/Reports/Evidence selections restore on re-entering their page within a case, not eagerly at switch time.
+- Workspace memory persists to localStorage; investigation/alert content is still in-memory and resets on refresh.
+- Vite bundle ~508 KB (advisory only, not a failure) — code-splitting deferred.
+
+### Next recommended phase
+
+**v1.1.7 — README / deployment readiness** (document run/build/test + workspace-memory model), then **v1.2 — persistence / local database foundation** (implement `FutureDatabaseWorkspaceMemoryProvider`; back `investigationStore`/`alertStore`/`workspaceStore` with a durable store; wire `FutureSiemWorkspaceContextProvider`).
+
+**Test status:** 145/145 pytest, 121 modules, 508KB bundle (vite v6). Safe to commit as **v1.1.6-workspace-memory-coverage**.
+
+---
+
 ### v0.9.1 — QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution
 
 **What changed:**

@@ -6,6 +6,10 @@ import {
   type CaseWorkspaceState,
   type WorkspacePageId,
   type InvestigationTab,
+  type CaseWorkspaceAlertsState,
+  type CaseWorkspaceReportsState,
+  type CaseWorkspaceEvidenceState,
+  type CaseWorkspaceHuntsState,
 } from '../types/workspace'
 
 /**
@@ -25,6 +29,11 @@ interface WorkspaceStoreState {
   patchWorkspace: (id: string, partial: Partial<CaseWorkspaceState>) => void
   setLastPage: (id: string, page: WorkspacePageId) => void
   setInvestigationTab: (id: string, tab: InvestigationTab) => void
+  /** Shallow-merge a nested sub-state so sibling fields are preserved. */
+  patchAlertsState: (id: string, partial: Partial<CaseWorkspaceAlertsState>) => void
+  patchReportsState: (id: string, partial: Partial<CaseWorkspaceReportsState>) => void
+  patchEvidenceState: (id: string, partial: Partial<CaseWorkspaceEvidenceState>) => void
+  patchHuntsState: (id: string, partial: Partial<CaseWorkspaceHuntsState>) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceStoreState>()(
@@ -48,6 +57,18 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
       setLastPage: (id, page) => get().patchWorkspace(id, { lastPage: page }),
 
       setInvestigationTab: (id, tab) => get().patchWorkspace(id, { lastInvestigationTab: tab }),
+
+      patchAlertsState: (id, partial) =>
+        get().patchWorkspace(id, { alertsState: { ...get().getWorkspace(id).alertsState, ...partial } }),
+
+      patchReportsState: (id, partial) =>
+        get().patchWorkspace(id, { reportsState: { ...get().getWorkspace(id).reportsState, ...partial } }),
+
+      patchEvidenceState: (id, partial) =>
+        get().patchWorkspace(id, { evidenceState: { ...get().getWorkspace(id).evidenceState, ...partial } }),
+
+      patchHuntsState: (id, partial) =>
+        get().patchWorkspace(id, { huntsState: { ...get().getWorkspace(id).huntsState, ...partial } }),
     }),
     {
       name: 'sentinel-iq-workspace-v1',
