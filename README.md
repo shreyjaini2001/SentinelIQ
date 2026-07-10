@@ -4,7 +4,7 @@
 
 > **Manual SOC workflow first. AI-assisted acceleration second. Investigation memory always.**
 
-`Status: Mock-first prototype` · `External AI: Off` · `Backend tests: 145 passing` · `Frontend build: passing locally`
+`Status: Mock-first prototype` · `External AI: Off` · `Persistence: Local SQLite (demo)` · `Backend tests: 150 passing` · `Frontend build: passing locally`
 
 ---
 
@@ -74,24 +74,41 @@ The current value is the **workflow architecture**: investigation memory, the ev
 | **AI orchestration (mock)** | Context Used panel · Execution Trace · privacy/redaction policies · explicit Save-as-Note / Pin-as-Finding (never auto-save) |
 | **Reporting** | Executive / technical / handoff / regulatory report variants · context-bound generation ("Using: {case}") |
 | **Data** | Deterministic mock SOC data layer (fixtures + generated alerts) |
+| **Persistence (demo)** | Local SQLite via the backend — investigation memory, alert lifecycle/audit trail, and workspace checkpoints survive reloads · debounced autosave · hydrate on load · graceful browser-fallback · Reset demo data |
 
 ---
 
 ## Screenshots
 
-Screenshots live in [`docs/assets/`](docs/assets/README.md). Suggested set for portfolio sharing:
+> All screenshots are from the deterministic **mock build** — no real data, no external AI calls.
 
-| View | Path |
-|------|------|
-| SOC overview / scratch landing | `docs/assets/overview.png` |
-| Alerts + in-page triage | `docs/assets/alerts-triage.png` |
-| Logs query console | `docs/assets/logs-query-console.png` |
-| QueryPlan + Sentinel/Splunk/Elastic adapters | `docs/assets/queryplan-adapters.png` |
-| Investigation evidence workspace | `docs/assets/evidence-workspace.png` |
-| Reports / handoff | `docs/assets/reports-handoff.png` |
-| Context Used + Execution Trace | `docs/assets/context-used-trace.png` |
+**SOC overview / scratch-first landing**
 
-> ⚠️ **Add screenshots here before public portfolio sharing.** The image files are not committed yet.
+![SOC overview and scratch-first landing](docs/assets/overview.png)
+
+**Alerts + in-page triage workspace**
+
+![Alerts list and in-page triage workspace](docs/assets/alerts-triage.png)
+
+**Logs query console**
+
+![Logs KQL query console with results](docs/assets/logs-query-console.png)
+
+**Vendor-agnostic QueryPlan → Sentinel / Splunk / Elastic adapters**
+
+![QueryPlan inspector rendering across Sentinel, Splunk, and Elastic](docs/assets/queryplan-adapters.png)
+
+**Investigation evidence workspace**
+
+![Investigation evidence graph and provenance](docs/assets/evidence-workspace.png)
+
+**Reports / shift handoff**
+
+![Generated report and shift handoff briefing](docs/assets/reports-handoff.png)
+
+**Context Used + Execution Trace (explainable AI orchestration)**
+
+![Context Used panel and Execution Trace for a mock AI action](docs/assets/context-used-trace.png)
 
 ---
 
@@ -241,6 +258,20 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting a mock demo and [SECURITY.md](SEC
 
 ---
 
+## Local persistence (v1.2.0)
+
+SentinelIQ ships a **local demo persistence layer** so investigation memory, alert lifecycle/audit trail, and workspace checkpoints survive page reloads and backend restarts.
+
+- **Backend:** a document-style **SQLite** store (Python stdlib `sqlite3`) exposed at `/api/v1/persistence/*` (`GET/PUT /state`, `POST /reset`, `GET /health`). DB path is `SENTINELIQ_DB_PATH` (default `apps/api/data/sentineliq_demo.db`, gitignored).
+- **Frontend:** hydrates stores on load, then **debounced autosave** (~1.2s) of a serialized snapshot. A signature check skips no-op writes (typing in the editor doesn't save).
+- **Graceful fallback:** if the backend is down, the app runs on in-memory mock data + browser-local state and shows a non-blocking status; it never freezes.
+- **Scratch-first preserved:** persisted data is restored, but the active case is **not** auto-selected — the app still lands in Scratch Mode.
+- **Reset demo data:** Settings → *Local Persistence (Demo)* clears the store and reseeds to the mock defaults, returning to Scratch Mode.
+
+Persistence is **local demo only** — no auth/RBAC, not production-secure (see [SECURITY.md](SECURITY.md)).
+
+---
+
 ## Roadmap
 
 **Near term**
@@ -268,8 +299,8 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting a mock demo and [SECURITY.md](SEC
 
 - Mock-first prototype — **no real SIEM ingestion yet**
 - **No real external AI calls yet** (mock provider only)
-- No production auth / RBAC
-- Local/browser state still used in places (investigation & alert data reset on refresh; workspace memory persists to localStorage)
+- No production auth / RBAC (the persistence API is unauthenticated — local demo only)
+- Local demo persistence is a single-file SQLite document store, not a normalized production database; hosted demos may reset when the backend container restarts (see [DEPLOYMENT.md](DEPLOYMENT.md))
 - Deployment configuration is still basic
 - **Not intended for production SOC use yet**
 
@@ -282,17 +313,6 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting a mock demo and [SECURITY.md](SEC
 - External AI calls are currently **off**; future real-model integration must use the privacy/redaction and least-context principles already scaffolded.
 
 Full policy: [SECURITY.md](SECURITY.md).
-
----
-
-## Portfolio / Interview talking points
-
-- **Why I built it:** SOC analysts lose investigation context across tools and shifts; I wanted to design the *memory layer* and *workflow*, not another chatbot.
-- **What I learned:** how to model investigation state, keep an AI assistant explainable (Context Used + Execution Trace), and design a vendor-neutral query abstraction.
-- **Product thinking:** a clear thesis ("investigation continuity"), an explicit "what it is / isn't", and a disciplined mock-first plan that de-risks real integration.
-- **SOC workflow understanding:** alert triage lifecycle, evidence provenance, entity pivots, handoff briefings, noisy-rule coaching — modeled on how analysts actually work.
-- **Frontend/backend architecture:** typed React + Zustand stores, a FastAPI backend with SSE streaming, and provider abstractions that make mock ↔ real a config swap.
-- **AI safety / context design:** privacy policies + redaction before any external call, minimum-context assembly per task, and explicit (never automatic) save-to-case.
 
 ---
 

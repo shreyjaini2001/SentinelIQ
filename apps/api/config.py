@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 8
     session_db_path: str = "./sentineliq.db"
 
+    # Local demo persistence (v1.2.0). Document-style SQLite store for investigation
+    # memory, alert lifecycle, and workspace checkpoints. Local demo only — not production.
+    # Override with SENTINELIQ_DB_PATH; use ":memory:" for ephemeral/test runs.
+    sentineliq_db_path: str = str(Path(__file__).parent / "data" / "sentineliq_demo.db")
+
     classifier_model: str = "claude-haiku-4-5-20251001"
     nlq_model: str = "claude-sonnet-4-6"
     action_model: str = "claude-sonnet-4-6"

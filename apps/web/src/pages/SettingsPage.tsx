@@ -1,3 +1,6 @@
+import { PersistenceStatusCard } from '../components/settings/PersistenceStatusCard'
+import { APP_VERSION } from '../utils/appVersion'
+
 const PROVIDERS = [
   {
     id: 'mock',
@@ -73,6 +76,9 @@ export function SettingsPage() {
         </p>
       </section>
 
+      {/* Local persistence status + reset demo data */}
+      <PersistenceStatusCard />
+
       {/* Privacy */}
       <section className="space-y-3">
         <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Privacy &amp; Data</div>
@@ -100,11 +106,11 @@ export function SettingsPage() {
         <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
           <div className="space-y-1.5 text-xs">
             {[
-              { label: 'SentinelIQ',    value: 'v0.5.0 — App Shell' },
+              { label: 'SentinelIQ',    value: `${APP_VERSION} — Local Persistence` },
               { label: 'API',           value: 'FastAPI / Python 3.12' },
               { label: 'Frontend',      value: 'React 18 + Vite + Tailwind' },
-              { label: 'Phases built',  value: 'P0 · P1 · P2 · P3' },
-              { label: 'Capabilities',  value: '10 AI capabilities · 145 tests passing' },
+              { label: 'Persistence',   value: 'Local SQLite (demo)' },
+              { label: 'Capabilities',  value: '10 AI capabilities · 150 tests passing' },
               { label: 'Mode',          value: 'Mock (fixture data)' },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">

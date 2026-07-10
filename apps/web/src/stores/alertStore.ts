@@ -47,6 +47,10 @@ interface AlertStoreState {
   hydrateUi: (ui: { status?: AlertStatus | 'all'; severity?: AlertSeverity | 'all'; visibleCount?: number; selectedIds?: string[] }) => void
   /** Reset UI state to defaults (used when entering Scratch — keeps Scratch fresh). */
   resetUi: () => void
+  // Persistence (v1.2.0) — hydrate the alert dataset (statuses, audit trail, links) from the
+  // local store; reset to the deterministic mock seed.
+  hydrateAlerts: (alerts: MockAlert[]) => void
+  resetAlerts: () => void
 }
 
 export const useAlertStore = create<AlertStoreState>()((set, get) => ({
@@ -177,6 +181,18 @@ export const useAlertStore = create<AlertStoreState>()((set, get) => ({
 
   resetUi: () =>
     set({ filters: { status: 'all', severity: 'all' }, visibleCount: PAGE_SIZE, selectedIds: new Set() }),
+
+  hydrateAlerts: (alerts) => {
+    if (Array.isArray(alerts) && alerts.length > 0) set({ alerts })
+  },
+
+  resetAlerts: () =>
+    set({
+      alerts: ALL_ALERTS,
+      filters: { status: 'all', severity: 'all' },
+      visibleCount: PAGE_SIZE,
+      selectedIds: new Set(),
+    }),
 
   undoLastAction: (id) => {
     const alert = get().alerts.find((a) => a.id === id)

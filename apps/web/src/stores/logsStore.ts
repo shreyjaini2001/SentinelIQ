@@ -38,6 +38,10 @@ interface LogsState {
   setCaseTargetId: (id: string | null) => void
   setSelectedPlatform: (p: SiemPlatform) => void
   clearResults: () => void
+  // Persistence (v1.2.0) — hydrate saved/recent queries + platform from the local store;
+  // reset those to defaults. Transient editor state (kql, results) is never persisted.
+  hydrateLogsMemory: (m: { savedQueries?: string[]; recentQueries?: string[]; selectedPlatform?: SiemPlatform }) => void
+  resetLogsMemory: () => void
 }
 
 export const useLogsStore = create<LogsState>()(
@@ -85,6 +89,16 @@ export const useLogsStore = create<LogsState>()(
 
       clearResults: () =>
         set({ results: null, pinned: false, pinnedFindingText: null, pinnedInvId: null, showSummary: false }),
+
+      hydrateLogsMemory: (m) =>
+        set((s) => ({
+          savedQueries: Array.isArray(m.savedQueries) ? m.savedQueries.slice(0, 20) : s.savedQueries,
+          recentQueries: Array.isArray(m.recentQueries) ? m.recentQueries.slice(0, 20) : s.recentQueries,
+          selectedPlatform: m.selectedPlatform ?? s.selectedPlatform,
+        })),
+
+      resetLogsMemory: () =>
+        set({ savedQueries: [], recentQueries: [], selectedPlatform: 'sentinel', kql: '', results: null }),
     }),
     {
       name: 'sentinel-iq-logs-v1',

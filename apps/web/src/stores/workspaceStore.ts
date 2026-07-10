@@ -34,6 +34,9 @@ interface WorkspaceStoreState {
   patchReportsState: (id: string, partial: Partial<CaseWorkspaceReportsState>) => void
   patchEvidenceState: (id: string, partial: Partial<CaseWorkspaceEvidenceState>) => void
   patchHuntsState: (id: string, partial: Partial<CaseWorkspaceHuntsState>) => void
+  // Persistence (v1.2.0) — hydrate checkpoints from the local store; reset to none.
+  hydrateWorkspaces: (workspaces: Record<string, CaseWorkspaceState>) => void
+  resetWorkspaces: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceStoreState>()(
@@ -69,6 +72,12 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
 
       patchHuntsState: (id, partial) =>
         get().patchWorkspace(id, { huntsState: { ...get().getWorkspace(id).huntsState, ...partial } }),
+
+      hydrateWorkspaces: (workspaces) => {
+        if (workspaces && typeof workspaces === 'object') set({ workspaces })
+      },
+
+      resetWorkspaces: () => set({ workspaces: {} }),
     }),
     {
       name: 'sentinel-iq-workspace-v1',

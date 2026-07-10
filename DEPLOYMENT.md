@@ -47,6 +47,7 @@ GitHub Pages serves **static files only**. SentinelIQ currently expects a runnin
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins. Set to your deployed frontend URL. | `https://sentineliq.vercel.app` |
 | `ANTHROPIC_API_KEY` | Ignored while `MOCK_LLM=true`. Leave blank for the demo. | *(blank)* |
 | `SESSION_DB_PATH` | SQLite session file path. Use an ephemeral/writable path on the host. | `./sentineliq_sessions.db` |
+| `SENTINELIQ_DB_PATH` | Local demo persistence SQLite file (investigation memory, alert lifecycle, workspace checkpoints). Use a writable path; `:memory:` for a fully ephemeral demo. | `apps/api/data/sentineliq_demo.db` |
 
 > `CORS_ORIGINS` is read in `apps/api/config.py` and applied in `apps/api/main.py` (v1.1.7). Default (`http://localhost:5173,http://localhost:3000`) preserves local dev.
 
@@ -78,8 +79,16 @@ GitHub Pages serves **static files only**. SentinelIQ currently expects a runnin
 
 ---
 
+## Persistence on hosted demos
+
+v1.2.0 adds a local SQLite demo persistence store (`SENTINELIQ_DB_PATH`). On hosts with an **ephemeral filesystem** (Render/Railway/Fly free tiers, most containers), the DB file is wiped when the container restarts or redeploys — so persisted demo state **may reset on restart**. That is expected for a demo.
+
+- For persistence across restarts, attach a **persistent disk/volume** and point `SENTINELIQ_DB_PATH` at it.
+- The persistence API is **unauthenticated** — never expose it with real data; treat the deployment as public demo-only.
+- A **production** deployment should replace this single-file store with a real database + auth/RBAC (the `FutureDatabaseWorkspaceMemoryProvider` boundary).
+
 ## Notes & limitations
 
-- Backend state (sessions, alert lifecycle, investigation memory) is **in-memory / SQLite and ephemeral** — a host restart resets it. Durable storage is the v1.2 persistence phase.
+- Backend state (sessions, alert lifecycle, investigation memory) is **SQLite-backed but ephemeral** on most hosts — a host restart without a persistent volume resets it.
 - No auth / RBAC — treat any deployment as **public and demo-only**.
 - Keep `MOCK_LLM=true`. Turning it off requires a real `ANTHROPIC_API_KEY` and still won't execute real SIEM queries (`RealSIEMProvider` is a Phase 2 stub).

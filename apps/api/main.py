@@ -3,12 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
 from src.storage.db import init_db
-from src.routers import classify, nlq, action, session, suggestions, capabilities
+from src.storage import local_store
+from src.routers import classify, nlq, action, session, suggestions, capabilities, persistence
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    local_store.init_local_store()
     yield
 
 
@@ -33,6 +35,7 @@ app.include_router(action.router, prefix="/api/v1", tags=["action"])
 app.include_router(session.router, prefix="/api/v1", tags=["session"])
 app.include_router(suggestions.router, prefix="/api/v1", tags=["suggestions"])
 app.include_router(capabilities.router, prefix="/api/v1", tags=["capabilities"])
+app.include_router(persistence.router, prefix="/api/v1", tags=["persistence"])
 
 
 @app.get("/health")
