@@ -127,7 +127,7 @@ export default function App() {
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v1.1.6</span>
+              <span className="text-[10px] text-gray-600 font-mono">v1.1.7</span>
             </div>
           </button>
 

@@ -888,6 +888,62 @@ Every restored id is validated before use: alert ids via `isValidAlertId`/`filte
 
 ---
 
+## v1.1.7 — Portfolio README, GitHub Presentation, and Mock Demo Deployment Readiness
+
+**Date:** 2026-07-10  
+**Status:** Complete — 122 modules, zero TS errors, 145/145 pytest passing. Docs + deployment-readiness patch (minimal deployment config code; no product features).
+
+Makes SentinelIQ presentable on GitHub, in interviews, and in a live mock demo. Full README rewrite (honest mock-first framing), deployment + security docs, env examples, a screenshots placeholder, and the minimal code needed to deploy the frontend and backend to different origins.
+
+### Deployment-config code changes (why version bumped to v1.1.7)
+
+| File | Change |
+|------|--------|
+| `apps/web/src/utils/apiBase.ts` | **New** — `API_BASE` resolves from `VITE_API_BASE_URL` (deployed) or falls back to `'/api/v1'` (local Vite proxy). Single source for the API origin. |
+| `apps/web/src/vite-env.d.ts` | **New** — self-contained typing for `import.meta.env.VITE_API_BASE_URL` (no `vite/client` dependency, so `tsc -b` can't fail on it). |
+| `apps/web/src/api/client.ts` | Replaced the hard-coded `const BASE = '/api/v1'` with `import { API_BASE as BASE } from '../utils/apiBase'`. No other logic changed; local dev behavior identical. |
+| `apps/api/config.py` | Added `cors_origins` setting (comma-separated, localhost default) + `cors_origin_list` property. |
+| `apps/api/main.py` | CORS middleware now reads `settings.cors_origin_list` instead of a hard-coded localhost list (default preserves local dev). |
+| `apps/web/src/App.tsx` | Version label → **v1.1.7**. |
+
+Local dev is unchanged: `VITE_API_BASE_URL` unset → dev proxy; `CORS_ORIGINS` unset → localhost default.
+
+### New documentation / config files
+
+| File | Purpose |
+|------|---------|
+| `README.md` | **Rewritten** for portfolio/GitHub — pitch, problem, is/is-not, honest mock-first status, features table, screenshots section, Demo Flow, architecture (flow + layers), "how it sits on top of SIEMs", Sentinel/Security Copilot comparison, tech stack, local setup, mock mode, roadmap, limitations, security notes, interview talking points, status/license. |
+| `DEPLOYMENT.md` | **New** — mock-only demo deployment: frontend (Vercel/Netlify/static) + backend (Render/Railway/Fly), env vars (`VITE_API_BASE_URL`, `MOCK_LLM`, `APP_ENV`, `CORS_ORIGINS`), why GitHub Pages alone isn't ideal (needs the FastAPI backend), step-by-step, CORS troubleshooting, ephemeral-state note. |
+| `SECURITY.md` | **New** — no committed `.env`/keys, mock-data-only demo, don't upload real SOC logs, external AI off, future-integration privacy/redaction/least-context, `RealSIEMProvider` future work, reporting. |
+| `.env.example` | **Updated** (root, backend) — added `CORS_ORIGINS`, clarified `.env` root location. |
+| `apps/web/.env.example` | **New** — frontend `VITE_API_BASE_URL` (build-time). |
+| `apps/api/.env.example` | **New** — backend var reference (notes the effective file is the project-root `.env`). |
+| `docs/assets/README.md` | **New** — screenshots placeholder + capture guidance; lists `overview.png`, `alerts-triage.png`, `logs-query-console.png`, `queryplan-adapters.png`, `evidence-workspace.png`, `reports-handoff.png`, `context-used-trace.png` with an "add screenshots before public sharing" note. No fake screenshots created. |
+
+### README sections added
+
+Title · one-line pitch · summary · problem statement · what it is / is not · **honest current-status disclosure** (mock data, no external AI, no real connectors) · key-features table · screenshots · Demo Flow (14 steps) · architecture (flow diagram + layers table) · how it sits on top of SIEMs ("the SIEM stores and searches the data; SentinelIQ remembers and drives the investigation") · Sentinel / Security Copilot comparison (honest, non-superiority) · tech stack · run locally (prereqs + backend venv + frontend + validate) · mock mode · roadmap (near/medium/long) · current limitations · security notes · portfolio/interview talking points · status & license · text status badges (mock-first / AI off / 145 tests / build passing).
+
+### Honesty framing (as required)
+
+README states plainly that SentinelIQ is a mock-first prototype: deterministic mock SOC data only, **no** real customer data, **no** Claude/OpenAI/external AI calls, **no** Sentinel/Splunk/Elastic connection — the current value is workflow architecture, investigation memory, evidence graph, query planning, and mock AI orchestration. No superiority claim over Microsoft products; positioned as a future layer that could sit above them.
+
+### Deployment-related code summary
+
+The only app-code touched is deployment config: a frontend API-base helper (`VITE_API_BASE_URL`) and env-driven backend CORS (`CORS_ORIGINS`). Both default to current local-dev behavior, so nothing breaks locally. The frontend can now be built for a static host pointing at a separately hosted backend.
+
+### Preserved (no regressions)
+
+- All v1.1.6 workspace-memory behavior, scratch-first landing, alert triage, evidence graph, QueryPlan/adapters, and AI orchestration panels unchanged. Backend untouched except env-driven CORS (145/145). No new npm/pip packages.
+
+### Next recommended phase
+
+**v1.2 — persistence / local database foundation:** back `investigationStore` / `alertStore` / `workspaceStore` with durable storage (implement `FutureDatabaseWorkspaceMemoryProvider`), durable alert lifecycle + audit trail, then real SIEM connector + local/hybrid AI provider abstractions.
+
+**Test status:** 145/145 pytest, 122 modules, 508KB bundle (vite v6). Safe to commit as **v1.1.7-readme-demo-deployment-readiness**.
+
+---
+
 ### v0.9.1 — QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution
 
 **What changed:**
