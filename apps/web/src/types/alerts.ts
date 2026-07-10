@@ -15,6 +15,15 @@ export type AlertTriageScopeType = 'visible_open' | 'all_open' | 'selected'
 
 export type TriageDisposition = 'likely_tp' | 'uncertain' | 'likely_fp'
 
+/** A single auditable lifecycle event on an alert (status change, link to case, etc.). */
+export interface AlertAuditEvent {
+  timestamp: string
+  previousStatus: AlertStatus
+  newStatus: AlertStatus
+  actor: string          // e.g. 'analyst_1'
+  reason: string         // 'manual' | 'triage decision' | 'linked to case …' | free text
+}
+
 export interface MockAlert {
   id: string
   name: string
@@ -35,6 +44,8 @@ export interface MockAlert {
   linkedInvestigationId?: string
   triageDisposition?: TriageDisposition
   triageExplanation?: string
+  /** Append-only lifecycle history. Undefined until the first status change / link. */
+  auditTrail?: AlertAuditEvent[]
 }
 
 export interface AlertStats {
@@ -65,6 +76,7 @@ export interface EnrichedTriageVerdict {
   alertName: string
   severity: AlertSeverity
   entity: string
+  entityType: AlertEntityType
   currentStatus: AlertStatus
   tp_probability: number
   fp_probability: number
@@ -73,6 +85,9 @@ export interface EnrichedTriageVerdict {
   influencing_fields: string[]
   suggestedStatus: AlertStatus
   triageDisposition: TriageDisposition
+  recommendedAction: string
+  /** Ordered next-step suggestions for the analyst (investigation guidance, not auto-run). */
+  recommendedNextActions: string[]
 }
 
 export interface ClientTriageResult {

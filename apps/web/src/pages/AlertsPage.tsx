@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { clsx } from 'clsx'
 import { useAlertStore } from '../stores/alertStore'
-import { submitCommand } from '../utils/commandRunner'
-import type { AlertStatus, AlertSeverity, MockAlert } from '../types/alerts'
+import { triageAlerts } from '../utils/alertTriageEngine'
+import { AlertTriageWorkspace } from '../components/alerts/AlertTriageWorkspace'
+import { AlertDetailPanel } from '../components/alerts/AlertDetailPanel'
+import type { AlertStatus, AlertSeverity, AlertTriageScopeType, MockAlert, ClientTriageResult } from '../types/alerts'
 
 const SEV_CONFIG: Record<AlertSeverity, { color: string; dot: string }> = {
   critical: { color: 'text-red-400',    dot: 'bg-red-500' },
@@ -45,10 +48,12 @@ function AlertRow({
   alert,
   selected,
   onToggle,
+  onOpen,
 }: {
   alert: MockAlert
   selected: boolean
   onToggle: () => void
+  onOpen: () => void
 }) {
   const sev = SEV_CONFIG[alert.severity]
   const statusCls = STATUS_STYLE[alert.status]
@@ -56,13 +61,14 @@ function AlertRow({
 
   return (
     <tr
+      onClick={onOpen}
       className={clsx(
-        'border-b border-gray-800/30 hover:bg-gray-800/25 transition-colors',
+        'border-b border-gray-800/30 hover:bg-gray-800/25 transition-colors cursor-pointer',
         selected && 'bg-blue-500/5',
       )}
     >
       {/* Checkbox */}
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           checked={selected}
@@ -109,6 +115,7 @@ export function AlertsPage() {
     stats,
     selectedIds,
     hasMore,
+    getTriageAlerts,
     setStatusFilter,
     setSeverityFilter,
     toggleSelection,
@@ -117,19 +124,24 @@ export function AlertsPage() {
     loadMore,
   } = useAlertStore()
 
+  // Page-local triage + detail state — triage from the Alerts buttons renders IN the page,
+  // NOT in the global command overlay (that path is reserved for global command-bar prompts).
+  const [triageResult, setTriageResult] = useState<ClientTriageResult | null>(null)
+  const [detailAlertId, setDetailAlertId] = useState<string | null>(null)
+
   const s = stats()
   const visible = visibleAlerts()
   const filtered = filteredAlerts()
   const selCount = selectedIds.size
 
-  function handleTriageScope(scope: string) {
-    const prompt = scope === 'selected'
-      ? 'Triage selected alerts'
-      : scope === 'visible'
-      ? 'Triage visible open alerts'
-      : 'Triage my open alerts'
-    void submitCommand(prompt, { source: 'overview_chip' })
+  function handleTriageScope(scope: AlertTriageScopeType) {
+    // Compute triage locally (deterministic engine, no backend) and show it in-page.
+    const alerts = getTriageAlerts(scope)
+    setTriageResult(triageAlerts(alerts, scope))
+    setDetailAlertId(null)
   }
+
+  const detailVerdict = triageResult?.verdicts.find((v) => v.alert_id === detailAlertId)
 
   return (
     <div className="space-y-4">
@@ -152,19 +164,37 @@ export function AlertsPage() {
             </button>
           )}
           <button
-            onClick={() => handleTriageScope('visible')}
+            onClick={() => handleTriageScope('visible_open')}
             className="px-3 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-xs font-medium hover:bg-purple-600/30 transition-colors"
           >
             Triage visible →
           </button>
           <button
-            onClick={() => handleTriageScope('all')}
+            onClick={() => handleTriageScope('all_open')}
             className="px-3 py-1.5 rounded-lg bg-red-600/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-600/20 transition-colors"
           >
             Triage all open →
           </button>
         </div>
       </div>
+
+      {/* In-page triage workspace (Alerts-initiated triage stays here, not the global overlay) */}
+      {triageResult && (
+        <AlertTriageWorkspace
+          result={triageResult}
+          onClose={() => setTriageResult(null)}
+          onOpenAlert={setDetailAlertId}
+        />
+      )}
+
+      {/* Alert detail panel */}
+      {detailAlertId && (
+        <AlertDetailPanel
+          alertId={detailAlertId}
+          verdict={detailVerdict}
+          onClose={() => setDetailAlertId(null)}
+        />
+      )}
 
       {/* Status tabs */}
       <div className="flex items-center gap-1 border-b border-gray-800/60 pb-0">
@@ -268,6 +298,7 @@ export function AlertsPage() {
                 alert={alert}
                 selected={selectedIds.has(alert.id)}
                 onToggle={() => toggleSelection(alert.id)}
+                onOpen={() => setDetailAlertId(alert.id)}
               />
             ))}
             {visible.length === 0 && (

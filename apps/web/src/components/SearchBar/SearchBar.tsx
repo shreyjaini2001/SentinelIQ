@@ -1,13 +1,14 @@
 import { useRef, KeyboardEvent } from 'react'
 import { clsx } from 'clsx'
 import { ModeIndicatorPill } from './ModeIndicatorPill'
-import { QueryPreviewCard } from './QueryPreviewCard'
 import { ChipRow } from './ChipRow'
 import { SessionBreadcrumb } from './SessionBreadcrumb'
 import { DisambiguationChips } from './DisambiguationChips'
 import { ProgressFeed } from './ProgressFeed'
 import { ActionOutput } from './ActionOutput'
 import { AutocompleteDropdown } from './AutocompleteDropdown'
+import { CommandResultOverlay } from './CommandResultOverlay'
+import { CommandResultBody } from './CommandResultBody'
 import { useSearchBar } from '../../hooks/useSearchBar'
 import { useSession } from '../../hooks/useSession'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -30,7 +31,7 @@ export function SearchBar() {
   const {
     currentResult, chips, breadcrumbs, submitHistory,
     actionOutput, actionData, actionProgress,
-    setResult, setChips, setLogsKql,
+    clear,
   } = useSessionStore()
   const hasDedicatedPanel = [
     'triage', 'hunt', 'timeline',
@@ -56,6 +57,7 @@ export function SearchBar() {
 
   const handleSubmitClick = () => {
     closeAutocomplete()
+    // Always submit the visible text. submit() self-guards on empty/running.
     submit(text)
   }
 
@@ -78,12 +80,26 @@ export function SearchBar() {
     submit(t)
   }
 
-  const showDisambiguation =
+  const showDisambiguation = !!(
     classification?.disambiguation_chips &&
     classification.disambiguation_chips.length > 0
+  )
+
+  // Single source of truth for whether Ask can run. Deliberately depends ONLY on
+  // visible text and whether a command is actively running — never on sessionId,
+  // autocomplete health, past errors, overlay state, or stale classification.
+  const isRunning = isLoading || isActionRunning
+  const canSubmit = text.trim().length > 0 && !isRunning
+
+  // The overlay opens only when there is an active or in-flight command result — never
+  // for lingering chips/breadcrumbs alone (which would leave a blank floating region).
+  const hasActiveCommand = !!(
+    currentResult || actionData || actionOutput ||
+    isActionRunning || actionProgress || showDisambiguation
+  )
 
   return (
-    <div className="w-full relative">
+    <div className="w-full relative" data-command-bar>
       {/* Main search bar */}
       <div
         className={clsx(
@@ -135,7 +151,7 @@ export function SearchBar() {
         <button
           data-testid="submit-button"
           onClick={handleSubmitClick}
-          disabled={!text.trim() || isLoading || isActionRunning || !sessionId}
+          disabled={!canSubmit}
           className={clsx(
             'shrink-0 px-4 py-1.5 rounded-lg text-sm font-medium',
             'transition-all duration-150',
@@ -161,54 +177,49 @@ export function SearchBar() {
         </button>
       </div>
 
-      {/* Below-bar content */}
-      <div className="mt-2 space-y-2">
-        {/* Disambiguation chips */}
-        {showDisambiguation && (
-          <DisambiguationChips
-            chips={classification!.disambiguation_chips!}
-            onSelect={confirmDisambiguation}
-          />
-        )}
+      {/* Floating command-palette overlay — anchored under the bar, never pushes the page */}
+      {hasActiveCommand && (
+        <CommandResultOverlay onClose={clear} label="Command Result">
+          {/* Disambiguation chips */}
+          {showDisambiguation && (
+            <DisambiguationChips
+              chips={classification!.disambiguation_chips!}
+              onSelect={confirmDisambiguation}
+            />
+          )}
 
-        {/* Action progress feed */}
-        {(isActionRunning || (actionProgress && !actionError)) && (
-          <ProgressFeed message={actionProgress} isRunning={isActionRunning} />
-        )}
+          {/* Action progress feed */}
+          {(isActionRunning || (actionProgress && !actionError)) && (
+            <ProgressFeed message={actionProgress} isRunning={isActionRunning} />
+          )}
 
-        {/* Action error card */}
-        {actionError && (
-          <div className="rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-400">
-            {actionProgress}
-          </div>
-        )}
+          {/* Action error card */}
+          {actionError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+              {actionProgress}
+            </div>
+          )}
 
-        {/* Query preview card — only when there is a query result and no action is in flight */}
-        {currentResult && !actionOutput && !isActionRunning && (
-          <QueryPreviewCard
-            key={currentResult.query_id}
-            result={currentResult}
-            onDismiss={() => { setResult(null); setChips([]) }}
-            onOpenInLogs={(kql) => { setLogsKql(kql); setResult(null); setChips([]) }}
-          />
-        )}
+          {/* Rich result — query preview card or AI action panels + orchestration meta */}
+          {!isActionRunning && <CommandResultBody />}
 
-        {/* Action output — only show text fallback when no dedicated panel */}
-        {actionOutput && !hasDedicatedPanel && <ActionOutput output={actionOutput} />}
+          {/* Action output — text fallback only when no dedicated panel */}
+          {actionOutput && !hasDedicatedPanel && <ActionOutput output={actionOutput} />}
 
-        {/* Chip suggestions */}
-        {chips.length > 0 && (
-          <ChipRow chips={chips} onChipClick={handleChipClick} />
-        )}
+          {/* Chip suggestions */}
+          {chips.length > 0 && (
+            <ChipRow chips={chips} onChipClick={handleChipClick} />
+          )}
 
-        {/* Session breadcrumbs */}
-        {breadcrumbs.length > 0 && (
-          <SessionBreadcrumb
-            breadcrumbs={breadcrumbs}
-            onRestore={handleBreadcrumbRestore}
-          />
-        )}
-      </div>
+          {/* Session history breadcrumbs */}
+          {breadcrumbs.length > 0 && (
+            <SessionBreadcrumb
+              breadcrumbs={breadcrumbs}
+              onRestore={handleBreadcrumbRestore}
+            />
+          )}
+        </CommandResultOverlay>
+      )}
     </div>
   )
 }

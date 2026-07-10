@@ -137,6 +137,52 @@ function suggestStatus(alert: MockAlert, tp: number, fp: number): AlertStatus {
   return 'open'
 }
 
+function recommendAction(disp: TriageDisposition, status: AlertStatus): string {
+  if (status !== 'open') return 'Already actioned — no change recommended.'
+  switch (disp) {
+    case 'likely_tp':  return 'Escalate to investigation and assign an analyst.'
+    case 'likely_fp':  return 'Suppress or tune the detection rule to reduce noise.'
+    case 'uncertain':
+    default:           return 'Manual review — gather more context before deciding.'
+  }
+}
+
+/**
+ * Ordered investigation-guidance suggestions per disposition. These are recommendations
+ * for the analyst — nothing here auto-runs, and nothing auto-closes/suppresses. Triage
+ * classifies and routes; remediation stays a separate, explicit analyst decision.
+ */
+function recommendedNextActions(alert: MockAlert, disp: TriageDisposition): string[] {
+  const e = alert.entity
+  if (disp === 'likely_tp') {
+    return [
+      `Build a timeline for ${e}`,
+      `Map the blast radius for ${e}`,
+      `Run a scoped query for ${e} activity`,
+      'Link to the active case (or open a new investigation)',
+      'Assign an owner and mark Investigating',
+      'Save the key indicator as a pinned finding',
+    ]
+  }
+  if (disp === 'likely_fp') {
+    return [
+      'Mark False Positive (after a quick sanity check)',
+      `Suppress similar ${alert.detectionRule} alerts`,
+      'Tune the detection rule threshold',
+      'Add a note explaining the rationale',
+      'Do not close automatically — requires analyst approval',
+    ]
+  }
+  // uncertain
+  return [
+    `Run an enrichment query for ${e}`,
+    'Check related entities for corroborating activity',
+    'Compare against baseline behavior',
+    'Review similar recent alerts',
+    'Keep open or mark Investigating pending review',
+  ]
+}
+
 // ──────────────────────────────────────────────────────────
 // Public API
 // ──────────────────────────────────────────────────────────
@@ -161,24 +207,31 @@ export function triageAlerts(
     selected: 'Selected Alerts',
   }
 
-  const verdicts: EnrichedTriageVerdict[] = alerts.map((alert) => {
-    const score = scoreByRule(alert.detectionRule, alert)
-    const disp = disposition(score.tp, score.fp)
-    return {
-      alert_id: alert.id,
-      alertName: alert.name,
-      severity: alert.severity,
-      entity: alert.entity,
-      currentStatus: alert.status,
-      tp_probability: score.tp,
-      fp_probability: score.fp,
-      confidence: score.confidence,
-      reasoning: score.reasoning,
-      influencing_fields: score.influencing,
-      suggestedStatus: suggestStatus(alert, score.tp, score.fp),
-      triageDisposition: disp,
-    }
-  })
+  const verdicts: EnrichedTriageVerdict[] = alerts
+    .map((alert) => {
+      const score = scoreByRule(alert.detectionRule, alert)
+      const disp = disposition(score.tp, score.fp)
+      return {
+        alert_id: alert.id,
+        alertName: alert.name,
+        severity: alert.severity,
+        entity: alert.entity,
+        entityType: alert.entityType,
+        currentStatus: alert.status,
+        tp_probability: score.tp,
+        fp_probability: score.fp,
+        confidence: score.confidence,
+        reasoning: score.reasoning,
+        influencing_fields: score.influencing,
+        suggestedStatus: suggestStatus(alert, score.tp, score.fp),
+        triageDisposition: disp,
+        recommendedAction: recommendAction(disp, alert.status),
+        recommendedNextActions: recommendedNextActions(alert, disp),
+      }
+    })
+    // Rank by risk (true-positive probability) descending so the top of the list is
+    // the highest-priority work — panels show "top N by risk" from this ordering.
+    .sort((a, b) => b.tp_probability - a.tp_probability)
 
   const likely_tp = verdicts.filter((v) => v.triageDisposition === 'likely_tp').length
   const likely_fp = verdicts.filter((v) => v.triageDisposition === 'likely_fp').length

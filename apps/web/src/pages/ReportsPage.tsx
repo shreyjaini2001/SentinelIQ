@@ -98,13 +98,18 @@ export function ReportsPage() {
             onChange={(e) => setReportCaseId(e.target.value || null)}
             className="w-full text-xs bg-gray-900 border border-gray-700/50 text-gray-300 rounded-lg px-2 py-1.5"
           >
-            <option value="">No case selected (standalone report)</option>
+            <option value="">— No report context (choose a case) —</option>
             {investigations.map((inv) => (
               <option key={inv.id} value={inv.id}>{inv.title}</option>
             ))}
           </select>
         ) : (
           <p className="text-xs text-gray-600">No investigations yet.</p>
+        )}
+        {!reportInv && (
+          <p className="text-[10px] text-amber-500/80 mt-1.5">
+            No report context selected. Case-specific reports need a case; pick one above (Scratch Mode does not auto-use the last case).
+          </p>
         )}
         {reportInv && contextBundle.items.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2">

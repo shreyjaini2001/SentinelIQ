@@ -107,6 +107,12 @@ function VerdictRow({
             <ConfidencePip confidence={verdict.confidence} />
           </div>
 
+          {/* Recommended action — always visible */}
+          <div className="flex items-start gap-1.5 mt-1.5">
+            <span className="text-[10px] text-gray-600 uppercase tracking-wider shrink-0 mt-px">Rec</span>
+            <span className="text-[10px] text-gray-400 leading-snug">{verdict.recommendedAction}</span>
+          </div>
+
           {/* Expanded reasoning */}
           {expanded && (
             <div className="mt-2.5 space-y-2">
@@ -173,12 +179,29 @@ interface Props {
   result: ClientTriageResult
 }
 
+const TOP_N = 12
+
+/** Human-readable scope sentence — always states what was processed and what is shown. */
+function scopeSummary(result: ClientTriageResult, shown: number): string {
+  const n = result.total_alerts
+  const plural = n === 1 ? '' : 's'
+  const base =
+    result.scope.scope === 'selected'
+      ? `Triaged ${n} selected alert${plural}.`
+      : result.scope.scope === 'visible_open'
+      ? `Triaged ${n} visible open alert${plural} from the current page.`
+      : `Triaged ${n} open alert${plural}.`
+  const tail = n > shown ? ` Showing top ${shown} by risk.` : ''
+  return base + tail
+}
+
 export function TriageResultPanel({ result }: Props) {
   const { applyStatusChange } = useAlertStore()
   const [applied, setApplied] = useState(false)
   const [showAll, setShowAll] = useState(false)
 
-  const displayedVerdicts = showAll ? result.verdicts : result.verdicts.slice(0, 15)
+  const displayedVerdicts = showAll ? result.verdicts : result.verdicts.slice(0, TOP_N)
+  const shownCount = Math.min(TOP_N, result.verdicts.length)
 
   function handleOverride(id: string, status: AlertStatus) {
     applyStatusChange([id], status)
@@ -209,6 +232,14 @@ export function TriageResultPanel({ result }: Props) {
         <span className="text-xs text-gray-500 font-mono">
           {result.total_alerts} alerts · {result.duration_ms}ms
         </span>
+      </div>
+
+      {/* Scope summary — always states scope processed + count shown */}
+      <div className="px-4 pt-3 pb-2 border-b border-gray-800/60">
+        <p className="text-xs text-gray-300">{scopeSummary(result, shownCount)}</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">
+          {result.scope.totalInScope} in scope · {result.scope.processedCount} processed · ranked by true-positive probability · Mock · External: Off
+        </p>
       </div>
 
       {/* Summary stats */}
@@ -242,13 +273,23 @@ export function TriageResultPanel({ result }: Props) {
       </div>
 
       {/* Load more */}
-      {result.verdicts.length > 15 && !showAll && (
+      {result.verdicts.length > TOP_N && !showAll && (
         <div className="px-4 py-2.5 border-t border-gray-800/60 text-center">
           <button
             onClick={() => setShowAll(true)}
             className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
           >
             Show all {result.verdicts.length} verdicts ↓
+          </button>
+        </div>
+      )}
+      {result.verdicts.length > TOP_N && showAll && (
+        <div className="px-4 py-2.5 border-t border-gray-800/60 text-center">
+          <button
+            onClick={() => setShowAll(false)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Show top {TOP_N} only ↑
           </button>
         </div>
       )}

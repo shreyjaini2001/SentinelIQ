@@ -3,6 +3,18 @@ import { persist } from 'zustand/middleware'
 import type { MockQueryResult } from '../utils/mockResults'
 import type { SiemPlatform } from '../types/queryPlan'
 
+/**
+ * Explicit "scratch only" sentinel for `caseTargetId`.
+ *
+ * `caseTargetId` has three states:
+ *   - `null`      → unset; the Logs page defaults to the active investigation.
+ *   - `<inv id>`  → save/pin/note target that specific case.
+ *   - SCRATCH     → the analyst explicitly chose no case; results stay scratch and
+ *                   are never coerced back to the active investigation.
+ * Using a distinct sentinel (not `null`/`''`) is what makes "None (scratch only)" stick.
+ */
+export const SCRATCH_CASE_TARGET = 'scratch'
+
 interface LogsState {
   kql: string
   results: MockQueryResult | null

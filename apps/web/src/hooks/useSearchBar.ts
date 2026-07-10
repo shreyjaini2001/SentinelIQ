@@ -138,28 +138,110 @@ export function useSearchBar() {
 
   const submit = useCallback(async (inputText?: string) => {
     const submittedText = (inputText ?? text).trim()
-    if (!submittedText || !sessionId) return
+    // Only hard requirement to run a command is non-empty text. sessionId is NOT required
+    // here — client-side intercepts (triage / evidence) run fully offline below, and the
+    // backend path guards for a session of its own. This keeps Ask reliable right after a
+    // refresh (before /session resolves) and while the backend is down.
+    if (!submittedText) {
+      console.debug('[command] blocked reason=empty-text')
+      return
+    }
+    console.debug('[command] submit start', { prompt: submittedText.slice(0, 60) })
 
-    // Diagnostic: log if a concurrent run is already in flight.
-    // We do NOT silently block — an explicit submitCommand call always proceeds,
-    // and the action token guard + abort handles stale callbacks from the old stream.
+    // A concurrent run may be in flight — we do NOT silently block. An explicit submit
+    // always proceeds; the action token guard + abort handles stale callbacks.
     const { isLoading: loading, isActionRunning: running } = useSessionStore.getState()
     if (loading || running) {
-      console.debug('[SentinelIQ] submit: pre-empting in-flight command', {
-        prompt: submittedText.slice(0, 60),
-        loading,
-        running,
-      })
+      console.debug('[command] pre-empting in-flight command', { loading, running })
     }
 
     // Clear stale classification and any prior error message immediately
     setClassification(null)
     setActionProgress(null)
 
-    // ── Step 1: Always re-classify the submitted text live.
-    // The debounce effect may not have settled (user typed fast or used a
-    // welcome-button). Using a stale classification would route action prompts
-    // to the query pipeline, producing KQL instead of the action panel.
+    // ── Step 0: Client-side action intercepts run FIRST — before any backend call.
+    // These are fully deterministic and offline-capable, so triage / evidence commands
+    // always route as actions (never KQL) and keep working when the backend is down.
+    // This is also what lets Alerts-page buttons submit directly with no second Ask click.
+    const evidenceMatch = detectEvidenceAction(submittedText)
+    const triageScopeType = evidenceMatch ? null : detectTriageScope(submittedText)
+    if (evidenceMatch || triageScopeType) {
+      setMode('action')
+      pushSubmitHistory(submittedText)
+      setResult(null)
+      setChips([])
+      setActionRunning(true)
+      setActionOutput(null)
+      setActionData(null)
+      setActionProgress(null)
+      if (abortActionRef.current) abortActionRef.current()
+
+      if (evidenceMatch) {
+        const result =
+          evidenceMatch.type === 'entity_summary'
+            ? generateEvidenceSummary(evidenceMatch.entity)
+            : generateRelationshipInvestigation(evidenceMatch.fromEntity, evidenceMatch.toEntity)
+
+        setActionOutput(' ')
+        setActionData({ handler: result.handler, data: result })
+
+        const invStore = useInvestigationStore.getState()
+        if (invStore.activeInvestigationId) {
+          const artifactId = invStore.addArtifact({
+            type: 'documentation',
+            title: buildArtifactTitle(result.handler, result, submittedText),
+            data: result,
+          })
+          invStore.addTurn({
+            user_text: submittedText,
+            mode: 'action',
+            result_summary: buildResultSummary(result.handler, result),
+            artifact_ids: artifactId ? [artifactId] : [],
+          })
+        }
+
+        // Build and discard orchestration (CommandResultBody builds fresh on render)
+        buildOrchestrationForAction(result.handler, submittedText)
+      } else if (triageScopeType) {
+        const alertsInScope = useAlertStore.getState().getTriageAlerts(triageScopeType)
+        const triageResult = triageAlerts(alertsInScope, triageScopeType)
+
+        setActionOutput(' ')
+        setActionData({ handler: 'triage', data: triageResult })
+
+        const invStore = useInvestigationStore.getState()
+        if (invStore.activeInvestigationId) {
+          const artifactId = invStore.addArtifact({
+            type: 'alert_triage',
+            title: `Triage: ${triageResult.scope.scopeLabel} — ${triageResult.total_alerts} alerts`,
+            data: triageResult,
+          })
+          invStore.addTurn({
+            user_text: submittedText,
+            mode: 'action',
+            result_summary: `Triage: ${triageResult.likely_tp} TP, ${triageResult.likely_fp} FP of ${triageResult.total_alerts}`,
+            artifact_ids: artifactId ? [artifactId] : [],
+          })
+        }
+      }
+
+      console.debug('[command] result set', { handler: evidenceMatch ? 'evidence' : 'triage', offline: true })
+      setActionProgress(null)
+      setActionRunning(false)
+      return
+    }
+
+    // ── Backend path needs a session id. With the eager local fallback in useSession this
+    // is effectively always set; guard defensively so we never throw and never hang Ask.
+    if (!sessionId) {
+      console.debug('[command] blocked reason=session-initializing')
+      setActionProgress('Session initializing — please retry in a moment')
+      return
+    }
+
+    // ── Step 1: Re-classify the submitted text live for non-intercepted prompts.
+    // The debounce effect may not have settled (fast typing or a welcome-button).
+    // Using a stale classification would route action prompts to KQL generation.
     let mode: Mode = 'query'
     try {
       const live = await api.classify(submittedText, sessionId)
@@ -187,69 +269,6 @@ export function useSearchBar() {
 
       // Abort any in-flight action from a previous submission
       if (abortActionRef.current) abortActionRef.current()
-
-      // ── Client-side intercept for evidence actions (no backend round-trip needed)
-      const evidenceMatch = detectEvidenceAction(submittedText)
-      if (evidenceMatch) {
-        const result =
-          evidenceMatch.type === 'entity_summary'
-            ? generateEvidenceSummary(evidenceMatch.entity)
-            : generateRelationshipInvestigation(evidenceMatch.fromEntity, evidenceMatch.toEntity)
-
-        setActionOutput(' ')
-        setActionData({ handler: result.handler, data: result })
-
-        const invStore = useInvestigationStore.getState()
-        if (invStore.activeInvestigationId) {
-          const artifactId = invStore.addArtifact({
-            type: 'documentation',
-            title: buildArtifactTitle(result.handler, result, submittedText),
-            data: result,
-          })
-          invStore.addTurn({
-            user_text: submittedText,
-            mode: 'action',
-            result_summary: buildResultSummary(result.handler, result),
-            artifact_ids: artifactId ? [artifactId] : [],
-          })
-        }
-
-        // Build and discard orchestration (OverviewPage builds fresh on render)
-        buildOrchestrationForAction(result.handler, submittedText)
-
-        setActionProgress(null)
-        setActionRunning(false)
-        return
-      }
-
-      // ── Client-side intercept for triage actions (scope-aware, no backend round-trip)
-      const triageScopeType = detectTriageScope(submittedText)
-      if (triageScopeType) {
-        const alertsInScope = useAlertStore.getState().getTriageAlerts(triageScopeType)
-        const triageResult = triageAlerts(alertsInScope, triageScopeType)
-
-        setActionOutput(' ')
-        setActionData({ handler: 'triage', data: triageResult })
-
-        const invStore = useInvestigationStore.getState()
-        if (invStore.activeInvestigationId) {
-          const artifactId = invStore.addArtifact({
-            type: 'alert_triage',
-            title: `Triage: ${triageResult.scope.scopeLabel} — ${triageResult.total_alerts} alerts`,
-            data: triageResult,
-          })
-          invStore.addTurn({
-            user_text: submittedText,
-            mode: 'action',
-            result_summary: `Triage: ${triageResult.likely_tp} TP, ${triageResult.likely_fp} FP of ${triageResult.total_alerts}`,
-            artifact_ids: artifactId ? [artifactId] : [],
-          })
-        }
-
-        setActionProgress(null)
-        setActionRunning(false)
-        return
-      }
 
       // Increment token — old stream callbacks will see a mismatch and exit
       const token = ++actionTokenRef.current
@@ -361,11 +380,15 @@ export function useSearchBar() {
           })
         }
 
+        console.debug('[command] result set', { mode, query_id: result.query_id })
         api.getSuggestions(sessionId).then((data) => {
           setChips(data.chips)
         }).catch(() => {})
       } catch (err) {
-        console.error('Query failed:', err)
+        // Query backend failed — surface a non-blocking error in the overlay and make sure
+        // Ask re-enables (finally resets loading). The next command works normally.
+        console.warn('[command] query failed', err)
+        setActionProgress(`Error: ${err instanceof Error ? err.message : 'Query failed — is the backend running?'}`)
       } finally {
         setLoading(false)
       }

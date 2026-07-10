@@ -1,34 +1,9 @@
 import { useMemo } from 'react'
 import { submitCommand } from '../utils/commandRunner'
-import { QueryPreviewCard } from '../components/SearchBar/QueryPreviewCard'
-import { AlertTriagePanel } from '../components/panels/AlertTriagePanel'
-import { TriageResultPanel } from '../components/alerts/TriageResultPanel'
-import { HuntResultPanel } from '../components/panels/HuntResultPanel'
-import { TimelinePanel } from '../components/panels/TimelinePanel'
-import { BlastRadiusPanel } from '../components/panels/BlastRadiusPanel'
-import { DocumentationPanel } from '../components/panels/DocumentationPanel'
-import { ComparativeAnalysisPanel } from '../components/panels/ComparativeAnalysisPanel'
-import { RuleSuggestionPanel } from '../components/panels/RuleSuggestionPanel'
-import { HandoffBriefingPanel } from '../components/panels/HandoffBriefingPanel'
-import { RunbookPanel } from '../components/panels/RunbookPanel'
-import { NoiseCoachingPanel } from '../components/panels/NoiseCoachingPanel'
-import { ModelModeBadge } from '../components/ai/ModelModeBadge'
-import { ContextUsedPanel } from '../components/ai/ContextUsedPanel'
-import { ExecutionTrace } from '../components/ai/ExecutionTrace'
-import { SaveAiOutputActions } from '../components/ai/SaveAiOutputActions'
-import { AiOutputPanel } from '../components/ai/AiOutputPanel'
-import { buildOrchestrationForAction } from '../utils/aiOrchestrator'
-import { useSessionStore } from '../stores/sessionStore'
 import { useAlertStore } from '../stores/alertStore'
+import { useInvestigationStore } from '../stores/investigationStore'
+import { WorkspaceModeBadge } from '../components/common/WorkspaceModeBadge'
 import type { PageId } from '../components/AppShell/Sidebar'
-import type { AiOrchestrationResult } from '../types/aiOrchestration'
-import type {
-  TriageResult, HuntResult, TimelineResult,
-  BlastRadiusResult, DocumentationResult, ComparativeResult,
-  RuleSuggestionResult, HandoffBriefingResult, RunbookResult, NoiseCoachingResult,
-} from '../types'
-import type { EvidenceSummaryResult, RelationshipInvestigationResult } from '../utils/evidenceActionGenerator'
-import type { ClientTriageResult } from '../types/alerts'
 
 
 const DEMO_CATEGORIES = [
@@ -135,87 +110,11 @@ function WelcomeState() {
   )
 }
 
-// Handlers with embedded ContextUsedPanel + SaveAiOutputActions in the panel itself
-const PANEL_INTEGRATED_HANDLERS = new Set([
-  'documentation', 'handoff',
-  'evidence_summary', 'relationship_investigation',
-])
-
-function MainPanel({
-  onClear,
-  orchestration,
-}: {
-  onClear: () => void
-  orchestration: AiOrchestrationResult | null
-}) {
-  const { actionData, currentResult } = useSessionStore()
-
-  if (actionData?.handler === 'triage') {
-    const d = actionData.data as Record<string, unknown>
-    if ('scope' in d)
-      return <TriageResultPanel result={actionData.data as ClientTriageResult} />
-    return <AlertTriagePanel result={actionData.data as TriageResult} />
-  }
-  if (actionData?.handler === 'hunt')
-    return <HuntResultPanel result={actionData.data as HuntResult} />
-  if (actionData?.handler === 'timeline')
-    return <TimelinePanel result={actionData.data as TimelineResult} />
-  if (actionData?.handler === 'blast_radius')
-    return <BlastRadiusPanel result={actionData.data as BlastRadiusResult} />
-  if (actionData?.handler === 'documentation')
-    return <DocumentationPanel result={actionData.data as DocumentationResult} orchestration={orchestration ?? undefined} />
-  if (actionData?.handler === 'comparative')
-    return <ComparativeAnalysisPanel result={actionData.data as ComparativeResult} />
-  if (actionData?.handler === 'rule_suggestion')
-    return <RuleSuggestionPanel result={actionData.data as RuleSuggestionResult} />
-  if (actionData?.handler === 'handoff')
-    return <HandoffBriefingPanel result={actionData.data as HandoffBriefingResult} orchestration={orchestration ?? undefined} />
-  if (actionData?.handler === 'runbook')
-    return <RunbookPanel result={actionData.data as RunbookResult} />
-  if (actionData?.handler === 'noise_coaching')
-    return <NoiseCoachingPanel result={actionData.data as NoiseCoachingResult} />
-
-  if (actionData?.handler === 'evidence_summary' && orchestration) {
-    const r = actionData.data as EvidenceSummaryResult
-    return (
-      <AiOutputPanel
-        title={r.title}
-        summary={r.summary}
-        lines={r.lines}
-        recommended={r.recommended}
-        orchestration={orchestration}
-        badge={r.entityType !== 'unknown' ? r.entityType : undefined}
-      />
-    )
-  }
-
-  if (actionData?.handler === 'relationship_investigation' && orchestration) {
-    const r = actionData.data as RelationshipInvestigationResult
-    return (
-      <AiOutputPanel
-        title={r.title}
-        summary={r.summary}
-        lines={r.lines}
-        recommended={r.recommended}
-        orchestration={orchestration}
-        badge="relationship"
-        badgeClass="text-cyan-400 border-cyan-500/40 bg-cyan-500/10"
-      />
-    )
-  }
-
-  if (currentResult)
-    return <QueryPreviewCard result={currentResult} onDismiss={onClear} />
-
-  return <WelcomeState />
-}
-
 interface OverviewPageProps {
   onNavigate: (page: PageId) => void
 }
 
 export function OverviewPage({ onNavigate }: OverviewPageProps) {
-  const { actionData, currentResult, clear, submitHistory } = useSessionStore()
   // Stable primitive selector — alerts array reference only changes on mutations.
   // Calling s.stats() directly as a selector returns a new object every render,
   // which trips useSyncExternalStore's getSnapshot check and causes an infinite loop.
@@ -225,18 +124,33 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
     for (const a of alerts) { r[a.status]++; r[a.severity]++ }
     return r
   }, [alerts])
-  const hasResult = !!(actionData || currentResult)
 
-  const orchestration: AiOrchestrationResult | null = actionData
-    ? buildOrchestrationForAction(actionData.handler, submitHistory[0] ?? '')
-    : null
-
-  function clearResult() {
-    clear()
-  }
+  const activeId = useInvestigationStore((s) => s.activeInvestigationId)
+  const investigations = useInvestigationStore((s) => s.investigations)
+  const activeCase = investigations.find((i) => i.id === activeId)
 
   return (
     <div className="space-y-5">
+      {/* Workspace lens — Scratch vs active case context */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <WorkspaceModeBadge />
+          <span className="text-[11px] text-gray-600">
+            {activeCase
+              ? `Working in ${activeCase.title} — AI actions default to this case; saves still need explicit approval.`
+              : 'Neutral SOC workspace — work stays scratch until you save or link it to a case.'}
+          </span>
+        </div>
+        {activeCase && (
+          <button
+            onClick={() => onNavigate('investigation-workspace')}
+            className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors shrink-0"
+          >
+            Open case workspace →
+          </button>
+        )}
+      </div>
+
       {/* Stat cards — derived from alertStore */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Total Alerts"   value={alertStats.total}    sub="updated just now"        color="text-white" />
@@ -245,46 +159,9 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
         <StatCard label="Active Hunts"   value={1}                    sub="in progress"              color="text-purple-400" />
       </div>
 
-      {hasResult ? (
-        <div className="space-y-3">
-          {/* AI Result header */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={clearResult}
-              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
-            >
-              ← Back to dashboard
-            </button>
-            <span className="text-gray-700 text-[11px]">·</span>
-            <span className="text-[11px] text-gray-600">
-              {orchestration ? orchestration.intent : 'AI Result'}
-            </span>
-            {orchestration && (
-              <>
-                <span className="text-gray-700 text-[11px]">·</span>
-                <ModelModeBadge orchestration={orchestration} />
-              </>
-            )}
-          </div>
-
-          <MainPanel onClear={clearResult} orchestration={orchestration} />
-
-          {/* Orchestration meta — only for panels that don't embed their own metadata */}
-          {orchestration && actionData && !PANEL_INTEGRATED_HANDLERS.has(actionData.handler) && (
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="w-0.5 h-3 rounded-full bg-purple-500/50" />
-                <span className="text-[9px] font-semibold text-gray-600 uppercase tracking-widest">AI Orchestration</span>
-              </div>
-              <ContextUsedPanel orchestration={orchestration} />
-              <ExecutionTrace orchestration={orchestration} />
-              <SaveAiOutputActions orchestration={orchestration} />
-            </div>
-          )}
-        </div>
-      ) : (
-        /* Dashboard layout */
-        <div className="grid grid-cols-3 gap-5">
+      {/* Dashboard layout — the stable underlying page. Command results float above it
+          in the global command-palette overlay and never replace or push this content. */}
+      <div className="grid grid-cols-3 gap-5">
 
           {/* Left column — widgets */}
           <div className="col-span-1 space-y-4">
@@ -377,13 +254,12 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
 
           </div>
 
-          {/* Right column — AI workspace / welcome state */}
+          {/* Right column — welcome / capability guidance */}
           <div className="col-span-2 space-y-4">
-            <MainPanel onClear={clearResult} orchestration={null} />
+            <WelcomeState />
           </div>
 
         </div>
-      )}
     </div>
   )
 }

@@ -1,8 +1,13 @@
 import { create } from 'zustand'
 import { ALL_ALERTS } from '../data/mockSocData'
-import type { MockAlert, AlertStatus, AlertSeverity, AlertStats, AlertTriageScopeType } from '../types/alerts'
+import type { MockAlert, AlertStatus, AlertSeverity, AlertStats, AlertTriageScopeType, AlertAuditEvent } from '../types/alerts'
 
 const PAGE_SIZE = 25
+const ACTOR = 'analyst_1'
+
+function auditEvent(prev: AlertStatus, next: AlertStatus, reason: string): AlertAuditEvent {
+  return { timestamp: new Date().toISOString(), previousStatus: prev, newStatus: next, actor: ACTOR, reason }
+}
 
 interface AlertFilters {
   status: AlertStatus | 'all'
@@ -23,6 +28,7 @@ interface AlertStoreState {
   openCount: () => number
   hasMore: () => boolean
   getTriageAlerts: (scope: AlertTriageScopeType) => MockAlert[]
+  getAlertById: (id: string) => MockAlert | undefined
   // Actions
   setStatusFilter: (status: AlertStatus | 'all') => void
   setSeverityFilter: (severity: AlertSeverity | 'all') => void
@@ -30,7 +36,12 @@ interface AlertStoreState {
   toggleSelection: (id: string) => void
   selectAll: () => void
   clearSelection: () => void
-  applyStatusChange: (ids: string[], newStatus: AlertStatus) => void
+  /** Change status for the given alerts, appending an audit event to each. */
+  applyStatusChange: (ids: string[], newStatus: AlertStatus, reason?: string) => void
+  /** Link alerts to an investigation (records an audit event; does not change status). */
+  linkAlertsToCase: (ids: string[], caseId: string, caseTitle: string) => void
+  /** Revert an alert to the previous status from its latest status-change audit event. */
+  undoLastAction: (id: string) => void
 }
 
 export const useAlertStore = create<AlertStoreState>()((set, get) => ({
@@ -88,6 +99,8 @@ export const useAlertStore = create<AlertStoreState>()((set, get) => ({
     }
   },
 
+  getAlertById: (id) => get().alerts.find((a) => a.id === id),
+
   setStatusFilter: (status) =>
     set({ filters: { ...get().filters, status }, visibleCount: PAGE_SIZE }),
 
@@ -111,13 +124,59 @@ export const useAlertStore = create<AlertStoreState>()((set, get) => ({
 
   clearSelection: () => set({ selectedIds: new Set() }),
 
-  applyStatusChange: (ids, newStatus) => {
+  applyStatusChange: (ids, newStatus, reason = 'manual') => {
+    if (ids.length === 0) return
+    const now = new Date().toISOString()
+    const idSet = new Set(ids)
+    set({
+      alerts: get().alerts.map((a) => {
+        if (!idSet.has(a.id) || a.status === newStatus) return a
+        return {
+          ...a,
+          status: newStatus,
+          updatedAt: now,
+          auditTrail: [...(a.auditTrail ?? []), auditEvent(a.status, newStatus, reason)],
+        }
+      }),
+    })
+  },
+
+  linkAlertsToCase: (ids, caseId, caseTitle) => {
+    if (ids.length === 0) return
+    const now = new Date().toISOString()
+    const idSet = new Set(ids)
+    set({
+      alerts: get().alerts.map((a) => {
+        if (!idSet.has(a.id) || a.linkedInvestigationId === caseId) return a
+        return {
+          ...a,
+          linkedInvestigationId: caseId,
+          updatedAt: now,
+          auditTrail: [...(a.auditTrail ?? []), auditEvent(a.status, a.status, `Linked to case ${caseTitle}`)],
+        }
+      }),
+    })
+  },
+
+  undoLastAction: (id) => {
+    const alert = get().alerts.find((a) => a.id === id)
+    const trail = alert?.auditTrail ?? []
+    // Find the most recent event that actually changed status (skip link-only events).
+    const last = [...trail].reverse().find((e) => e.previousStatus !== e.newStatus)
+    if (!alert || !last) return
+    const target = last.previousStatus
     const now = new Date().toISOString()
     set({
       alerts: get().alerts.map((a) =>
-        ids.includes(a.id) ? { ...a, status: newStatus, updatedAt: now } : a,
+        a.id === id
+          ? {
+              ...a,
+              status: target,
+              updatedAt: now,
+              auditTrail: [...(a.auditTrail ?? []), auditEvent(a.status, target, 'undo last action')],
+            }
+          : a,
       ),
-      selectedIds: new Set(),
     })
   },
 }))
