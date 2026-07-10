@@ -5,8 +5,7 @@ import type {
   AutocompleteCompletion,
   ActionProgressEvent,
 } from '../types'
-
-const BASE = '/api/v1'
+import { API_BASE as BASE } from '../utils/apiBase'
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
