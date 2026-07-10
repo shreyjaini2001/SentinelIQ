@@ -13,6 +13,7 @@ export type CommandSource =
   | 'investigation_quick_action'
   | 'suggestion_chip'
   | 'autocomplete'
+  | 'alerts_triage'
   | 'unknown'
 
 export interface CommandOptions {
@@ -41,21 +42,29 @@ export function registerSetText(fn: ((text: string) => void) | null): void {
 export async function submitCommand(prompt: string, options?: CommandOptions): Promise<void> {
   const id = ++_cmdSeq
   const source = options?.source ?? 'unknown'
+  const text = prompt.trim()
 
-  console.debug('[SentinelIQ] cmd:start', { id, source, prompt: prompt.slice(0, 80) })
+  if (!text) {
+    console.debug('[command] blocked reason=empty-prompt', { id, source })
+    return
+  }
 
-  // Sync the visible AI bar text so the user sees what ran
-  _setText?.(prompt)
+  console.debug('[command] submit start', { id, source, prompt: text.slice(0, 80) })
+
+  // Sync the visible AI bar text so the user sees what ran. This is cosmetic — dispatch
+  // below receives the prompt explicitly and does NOT depend on this state landing first.
+  _setText?.(text)
 
   if (!_dispatch) {
-    console.warn('[SentinelIQ] cmd:blocked — dispatch not registered yet', { id, source })
+    // SearchBar mounts in the app header, so this should never happen in practice.
+    console.warn('[command] blocked reason=dispatch-not-registered', { id, source })
     return
   }
 
   try {
-    await _dispatch(prompt)
-    console.debug('[SentinelIQ] cmd:complete', { id })
+    await _dispatch(text)
+    console.debug('[command] complete', { id })
   } catch (err) {
-    console.debug('[SentinelIQ] cmd:failed', { id, error: err })
+    console.debug('[command] failed', { id, error: err })
   }
 }

@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../../stores/investigationStore'
+import { useAlertStore } from '../../stores/alertStore'
+import { useSessionStore } from '../../stores/sessionStore'
+import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { workspaceIdFor } from '../../utils/workspaceMemory'
+import { SCRATCH_WORKSPACE_ID, type WorkspacePageId } from '../../types/workspace'
 
 export type PageId =
   | 'overview' | 'alerts' | 'investigations' | 'investigation-workspace'
@@ -8,9 +13,9 @@ export type PageId =
 
 interface NavItem { id: PageId; label: string; icon: string; badge?: number }
 
-const NAV_MAIN: NavItem[] = [
+const NAV_MAIN_BASE: Omit<NavItem, 'badge'>[] = [
   { id: 'overview',       label: 'Overview',      icon: '⊞' },
-  { id: 'alerts',         label: 'Alerts',         icon: '◉', badge: 190 },
+  { id: 'alerts',         label: 'Alerts',         icon: '◉' },
   { id: 'investigations', label: 'Investigations', icon: '◈' },
   { id: 'logs',           label: 'Logs',           icon: '⊟' },
   { id: 'hunts',          label: 'Hunts',          icon: '⊕' },
@@ -63,8 +68,27 @@ function NavBtn({ item, active, onClick }: { item: NavItem; active: boolean; onC
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const { investigations, activeInvestigationId, openInvestigation, closeActiveInvestigation } = useInvestigationStore()
+  const openCount = useAlertStore((s) => s.openCount())
   const activeInv = investigations.find((i) => i.id === activeInvestigationId)
   const [showCaseSelector, setShowCaseSelector] = useState(false)
+
+  const NAV_MAIN: NavItem[] = NAV_MAIN_BASE.map((item) =>
+    item.id === 'alerts' ? { ...item, badge: openCount } : item,
+  )
+
+  // Workspace switch: remember where we are in the current workspace, close any transient
+  // command overlay, switch the active case (or Scratch), then restore the target
+  // workspace's last page. Investigation memory is never touched here.
+  function switchWorkspace(targetId: string | null) {
+    const ws = useWorkspaceStore.getState()
+    ws.setLastPage(workspaceIdFor(activeInvestigationId), currentPage as WorkspacePageId)
+    useSessionStore.getState().clear() // close overlay + clear transient command result
+    if (targetId) openInvestigation(targetId)
+    else closeActiveInvestigation()
+    setShowCaseSelector(false)
+    const restored = ws.getWorkspace(targetId ?? SCRATCH_WORKSPACE_ID).lastPage
+    onNavigate(restored ?? (targetId ? 'investigation-workspace' : 'overview'))
+  }
 
   // Investigations nav item is highlighted when on either the list or the workspace
   const isInvActive =
@@ -96,8 +120,8 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
               </button>
               {/* Clear / scratch mode button */}
               <button
-                onClick={() => { closeActiveInvestigation(); setShowCaseSelector(false) }}
-                title="Clear active case (scratch mode)"
+                onClick={() => switchWorkspace(null)}
+                title="Switch to Scratch Mode (no active case)"
                 className="text-[9px] text-gray-600 hover:text-red-400 px-1 transition-colors leading-none"
               >
                 ×
@@ -114,12 +138,19 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
               </p>
             </button>
             {/* Case switcher dropdown */}
-            {showCaseSelector && investigations.length > 0 && (
-              <div className="border-t border-gray-700/50 px-2 py-1.5 space-y-0.5 max-h-36 overflow-y-auto">
+            {showCaseSelector && (
+              <div className="border-t border-gray-700/50 px-2 py-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+                {/* Explicit Scratch Mode option */}
+                <button
+                  onClick={() => switchWorkspace(null)}
+                  className="w-full text-left px-2 py-1 rounded text-[10px] text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-colors truncate"
+                >
+                  ○ Scratch Mode / No Active Case
+                </button>
                 {investigations.map((inv) => (
                   <button
                     key={inv.id}
-                    onClick={() => { openInvestigation(inv.id); setShowCaseSelector(false) }}
+                    onClick={() => switchWorkspace(inv.id)}
                     className={clsx(
                       'w-full text-left px-2 py-1 rounded text-[10px] transition-colors truncate',
                       inv.id === activeInvestigationId
@@ -138,15 +169,18 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           <div className="rounded-lg border border-gray-700/30 bg-gray-900/20 px-3 py-2">
             <div className="flex items-center gap-1.5 mb-1">
               <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
-              <span className="text-[9px] font-mono text-gray-700 uppercase tracking-widest">Scratch Mode</span>
+              <span className="text-[9px] font-mono text-gray-700 uppercase tracking-widest">No Active Case · Scratch Mode</span>
             </div>
+            <p className="text-[10px] text-gray-600 mb-1 leading-snug">
+              New queries, alerts &amp; hunts won't attach to a case. Save/pin/link will ask for a destination.
+            </p>
             {investigations.length > 0 ? (
               <select
                 className="w-full text-[10px] bg-gray-900 border border-gray-700/50 text-gray-400 rounded px-1 py-0.5 mt-0.5"
-                defaultValue=""
-                onChange={(e) => { if (e.target.value) openInvestigation(e.target.value) }}
+                value=""
+                onChange={(e) => { if (e.target.value) switchWorkspace(e.target.value) }}
               >
-                <option value="">Open a case...</option>
+                <option value="">Select a case…</option>
                 {investigations.map((inv) => (
                   <option key={inv.id} value={inv.id}>{inv.title}</option>
                 ))}

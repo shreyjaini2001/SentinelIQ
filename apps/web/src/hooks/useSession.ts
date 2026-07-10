@@ -8,21 +8,27 @@ export function useSession() {
   const { sessionId, setSessionId } = useSessionStore()
 
   useEffect(() => {
-    const initSession = async () => {
-      const stored = localStorage.getItem(SESSION_KEY)
-      if (stored) {
-        setSessionId(stored)
-        return
-      }
-      try {
-        const { session_id } = await api.createSession()
+    if (sessionId) return
+
+    const stored = localStorage.getItem(SESSION_KEY)
+    if (stored) {
+      setSessionId(stored)
+      return
+    }
+
+    // Set an IMMEDIATE local session id so the command bar is usable on this very render —
+    // no waiting on the network. Client-side actions (triage / evidence) work fully offline,
+    // and Ask never sits disabled waiting for /session. Then best-effort upgrade to a real
+    // backend session in the background; if the backend is down we simply keep the local id.
+    setSessionId(`local-${Date.now()}`)
+    api.createSession()
+      .then(({ session_id }) => {
         localStorage.setItem(SESSION_KEY, session_id)
         setSessionId(session_id)
-      } catch (err) {
-        console.error('Failed to create session:', err)
-      }
-    }
-    if (!sessionId) initSession()
+      })
+      .catch((err) => {
+        console.warn('[session] backend unavailable — using local session', err)
+      })
   }, [sessionId, setSessionId])
 
   return sessionId

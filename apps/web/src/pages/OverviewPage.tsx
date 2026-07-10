@@ -1,29 +1,10 @@
+import { useMemo } from 'react'
 import { submitCommand } from '../utils/commandRunner'
-import { QueryPreviewCard } from '../components/SearchBar/QueryPreviewCard'
-import { AlertTriagePanel } from '../components/panels/AlertTriagePanel'
-import { HuntResultPanel } from '../components/panels/HuntResultPanel'
-import { TimelinePanel } from '../components/panels/TimelinePanel'
-import { BlastRadiusPanel } from '../components/panels/BlastRadiusPanel'
-import { DocumentationPanel } from '../components/panels/DocumentationPanel'
-import { ComparativeAnalysisPanel } from '../components/panels/ComparativeAnalysisPanel'
-import { RuleSuggestionPanel } from '../components/panels/RuleSuggestionPanel'
-import { HandoffBriefingPanel } from '../components/panels/HandoffBriefingPanel'
-import { RunbookPanel } from '../components/panels/RunbookPanel'
-import { NoiseCoachingPanel } from '../components/panels/NoiseCoachingPanel'
-import { useSessionStore } from '../stores/sessionStore'
+import { useAlertStore } from '../stores/alertStore'
+import { useInvestigationStore } from '../stores/investigationStore'
+import { WorkspaceModeBadge } from '../components/common/WorkspaceModeBadge'
 import type { PageId } from '../components/AppShell/Sidebar'
-import type {
-  TriageResult, HuntResult, TimelineResult,
-  BlastRadiusResult, DocumentationResult, ComparativeResult,
-  RuleSuggestionResult, HandoffBriefingResult, RunbookResult, NoiseCoachingResult,
-} from '../types'
 
-const ALERT_QUEUE = [
-  { label: 'Critical', count: 3,   color: 'text-red-400',    bar: 'bg-red-500',    pct: 15 },
-  { label: 'High',     count: 12,  color: 'text-orange-400', bar: 'bg-orange-500', pct: 40 },
-  { label: 'Medium',   count: 47,  color: 'text-amber-400',  bar: 'bg-amber-500',  pct: 80 },
-  { label: 'Low',      count: 128, color: 'text-gray-400',   bar: 'bg-gray-600',   pct: 100 },
-]
 
 const DEMO_CATEGORIES = [
   {
@@ -129,76 +110,58 @@ function WelcomeState() {
   )
 }
 
-function MainPanel({ onClear }: { onClear: () => void }) {
-  const { actionData, currentResult } = useSessionStore()
-
-  if (actionData?.handler === 'triage')
-    return <AlertTriagePanel result={actionData.data as TriageResult} />
-  if (actionData?.handler === 'hunt')
-    return <HuntResultPanel result={actionData.data as HuntResult} />
-  if (actionData?.handler === 'timeline')
-    return <TimelinePanel result={actionData.data as TimelineResult} />
-  if (actionData?.handler === 'blast_radius')
-    return <BlastRadiusPanel result={actionData.data as BlastRadiusResult} />
-  if (actionData?.handler === 'documentation')
-    return <DocumentationPanel result={actionData.data as DocumentationResult} />
-  if (actionData?.handler === 'comparative')
-    return <ComparativeAnalysisPanel result={actionData.data as ComparativeResult} />
-  if (actionData?.handler === 'rule_suggestion')
-    return <RuleSuggestionPanel result={actionData.data as RuleSuggestionResult} />
-  if (actionData?.handler === 'handoff')
-    return <HandoffBriefingPanel result={actionData.data as HandoffBriefingResult} />
-  if (actionData?.handler === 'runbook')
-    return <RunbookPanel result={actionData.data as RunbookResult} />
-  if (actionData?.handler === 'noise_coaching')
-    return <NoiseCoachingPanel result={actionData.data as NoiseCoachingResult} />
-
-  if (currentResult)
-    return <QueryPreviewCard result={currentResult} onDismiss={onClear} />
-
-  return <WelcomeState />
-}
-
 interface OverviewPageProps {
   onNavigate: (page: PageId) => void
 }
 
 export function OverviewPage({ onNavigate }: OverviewPageProps) {
-  const { actionData, currentResult, clear } = useSessionStore()
-  const hasResult = !!(actionData || currentResult)
+  // Stable primitive selector — alerts array reference only changes on mutations.
+  // Calling s.stats() directly as a selector returns a new object every render,
+  // which trips useSyncExternalStore's getSnapshot check and causes an infinite loop.
+  const alerts = useAlertStore((s) => s.alerts)
+  const alertStats = useMemo(() => {
+    const r = { total: alerts.length, open: 0, investigating: 0, acknowledged: 0, closed: 0, suppressed: 0, false_positive: 0, escalated: 0, critical: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
+    for (const a of alerts) { r[a.status]++; r[a.severity]++ }
+    return r
+  }, [alerts])
 
-  function clearResult() {
-    clear()
-  }
+  const activeId = useInvestigationStore((s) => s.activeInvestigationId)
+  const investigations = useInvestigationStore((s) => s.investigations)
+  const activeCase = investigations.find((i) => i.id === activeId)
 
   return (
     <div className="space-y-5">
-      {/* Stat cards — always visible */}
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Alerts"    value={190} sub="updated just now"           color="text-white" />
-        <StatCard label="Critical"        value={3}   sub="require immediate action"    color="text-red-400" />
-        <StatCard label="Investigations"  value={2}   sub="active this shift"           color="text-orange-400" />
-        <StatCard label="Active Hunts"    value={1}   sub="in progress"                 color="text-purple-400" />
+      {/* Workspace lens — Scratch vs active case context */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <WorkspaceModeBadge />
+          <span className="text-[11px] text-gray-600">
+            {activeCase
+              ? `Working in ${activeCase.title} — AI actions default to this case; saves still need explicit approval.`
+              : 'Neutral SOC workspace — work stays scratch until you save or link it to a case.'}
+          </span>
+        </div>
+        {activeCase && (
+          <button
+            onClick={() => onNavigate('investigation-workspace')}
+            className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors shrink-0"
+          >
+            Open case workspace →
+          </button>
+        )}
       </div>
 
-      {hasResult ? (
-        /* Result workspace — full width, dashboard widgets hidden */
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={clearResult}
-              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
-            >
-              ← Back to dashboard
-            </button>
-            <span className="text-gray-700 text-[11px]">·</span>
-            <span className="text-[11px] text-gray-600">AI Result</span>
-          </div>
-          <MainPanel onClear={clearResult} />
-        </div>
-      ) : (
-        /* Dashboard layout — widgets + welcome/query state */
-        <div className="grid grid-cols-3 gap-5">
+      {/* Stat cards — derived from alertStore */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard label="Total Alerts"   value={alertStats.total}    sub="updated just now"        color="text-white" />
+        <StatCard label="Critical"       value={alertStats.critical}  sub="require immediate action" color="text-red-400" />
+        <StatCard label="Investigations" value={2}                    sub="active this shift"        color="text-orange-400" />
+        <StatCard label="Active Hunts"   value={1}                    sub="in progress"              color="text-purple-400" />
+      </div>
+
+      {/* Dashboard layout — the stable underlying page. Command results float above it
+          in the global command-palette overlay and never replace or push this content. */}
+      <div className="grid grid-cols-3 gap-5">
 
           {/* Left column — widgets */}
           <div className="col-span-1 space-y-4">
@@ -209,24 +172,32 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
                 <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Alert Queue</h3>
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] text-gray-600">Live</span>
+                  <span className="text-[10px] text-gray-600">Mock</span>
                 </div>
               </div>
               <div className="space-y-2.5">
-                {ALERT_QUEUE.map((item) => (
+                {[
+                  { label: 'Critical', count: alertStats.critical, color: 'text-red-400',    bar: 'bg-red-500' },
+                  { label: 'High',     count: alertStats.high,     color: 'text-orange-400', bar: 'bg-orange-500' },
+                  { label: 'Medium',   count: alertStats.medium,   color: 'text-amber-400',  bar: 'bg-amber-500' },
+                  { label: 'Low',      count: alertStats.low,      color: 'text-gray-400',   bar: 'bg-gray-600' },
+                ].map((item) => (
                   <div key={item.label} className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-400">{item.label}</span>
                       <span className={`text-sm font-mono font-semibold ${item.color}`}>{item.count}</span>
                     </div>
                     <div className="h-1 rounded-full bg-gray-800 overflow-hidden">
-                      <div className={`h-full rounded-full ${item.bar} opacity-60`} style={{ width: `${item.pct}%` }} />
+                      <div
+                        className={`h-full rounded-full ${item.bar} opacity-60`}
+                        style={{ width: `${Math.round((item.count / alertStats.total) * 100)}%` }}
+                      />
                     </div>
                   </div>
                 ))}
               </div>
               <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
-                <span className="text-[10px] text-gray-600">190 total</span>
+                <span className="text-[10px] text-gray-600">{alertStats.total} total · {alertStats.open} open</span>
                 <button
                   onClick={() => onNavigate('alerts')}
                   className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
@@ -283,13 +254,12 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
 
           </div>
 
-          {/* Right column — AI workspace / welcome state */}
+          {/* Right column — welcome / capability guidance */}
           <div className="col-span-2 space-y-4">
-            <MainPanel onClear={clearResult} />
+            <WelcomeState />
           </div>
 
         </div>
-      )}
     </div>
   )
 }

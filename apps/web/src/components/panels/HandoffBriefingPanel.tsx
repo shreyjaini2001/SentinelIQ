@@ -1,7 +1,12 @@
 import type { HandoffBriefingResult, HandoffItem, SLAIndicator } from '../../types'
+import type { AiOrchestrationResult } from '../../types/aiOrchestration'
+import { ContextUsedPanel } from '../ai/ContextUsedPanel'
+import { ExecutionTrace } from '../ai/ExecutionTrace'
+import { SaveAiOutputActions } from '../ai/SaveAiOutputActions'
 
 interface Props {
   result: HandoffBriefingResult
+  orchestration?: AiOrchestrationResult
 }
 
 const URGENCY_CONFIG: Record<string, { badge: string; bar: string; dot: string; border: string }> = {
@@ -42,9 +47,14 @@ function SLARow({ sla }: { sla: SLAIndicator }) {
   )
 }
 
-export function HandoffBriefingPanel({ result }: Props) {
+export function HandoffBriefingPanel({ result, orchestration }: Props) {
   const criticalCount = result.open_items.filter(i => i.urgency === 'critical').length
   const highCount = result.open_items.filter(i => i.urgency === 'high').length
+
+  const briefText = [
+    result.key_context,
+    ...result.recommended_next_actions,
+  ].join('\n')
 
   return (
     <div data-testid="handoff-briefing-panel" className="rounded-xl border border-gray-700/60 bg-gray-900/70 overflow-hidden">
@@ -163,6 +173,15 @@ export function HandoffBriefingPanel({ result }: Props) {
             ))}
           </ol>
         </div>
+
+        {/* AI Orchestration context + save actions */}
+        {orchestration && (
+          <div className="space-y-2 pt-1 border-t border-gray-800/60">
+            <ContextUsedPanel orchestration={orchestration} />
+            <ExecutionTrace orchestration={orchestration} />
+            <SaveAiOutputActions orchestration={orchestration} content={briefText} />
+          </div>
+        )}
       </div>
     </div>
   )

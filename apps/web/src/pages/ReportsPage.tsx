@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { useSessionStore } from '../stores/sessionStore'
 import { useInvestigationStore } from '../stores/investigationStore'
+import { ModelModeBadge } from '../components/ai/ModelModeBadge'
+import { ReportDetailPanel } from '../components/reports/ReportDetailPanel'
+import { buildContextBundle } from '../utils/contextBuilder'
+import { submitCommand } from '../utils/commandRunner'
 
 const FIXTURE_REPORTS = [
   {
@@ -38,22 +41,33 @@ const FIXTURE_REPORTS = [
 ]
 
 const VARIANT_STYLE: Record<string, { color: string; label: string }> = {
-  executive:  { color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',      label: 'Executive' },
-  technical:  { color: 'text-blue-400 bg-blue-500/10 border-blue-500/25',      label: 'Technical' },
-  handoff:    { color: 'text-amber-400 bg-amber-500/10 border-amber-500/25',   label: 'Handoff' },
+  executive:  { color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',       label: 'Executive' },
+  technical:  { color: 'text-blue-400 bg-blue-500/10 border-blue-500/25',       label: 'Technical' },
+  handoff:    { color: 'text-amber-400 bg-amber-500/10 border-amber-500/25',    label: 'Handoff' },
   regulatory: { color: 'text-purple-400 bg-purple-500/10 border-purple-500/25', label: 'Regulatory' },
 }
 
 export function ReportsPage() {
-  const { setPendingQuery } = useSessionStore()
   const { investigations, activeInvestigationId } = useInvestigationStore()
-  // Independent report context: defaults to globally active case, but analyst can override here
   const [reportCaseId, setReportCaseId] = useState<string | null>(activeInvestigationId)
-  const reportInv = investigations.find((i) => i.id === reportCaseId) ?? null
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
 
-  const contextMeta = reportInv
-    ? `${reportInv.turns.length} turns · ${reportInv.artifacts.length} artifacts · ${reportInv.pinned_findings.length} pinned findings · ${reportInv.notes.length} notes`
-    : null
+  const reportInv = investigations.find((i) => i.id === reportCaseId) ?? null
+  const selectedReport = FIXTURE_REPORTS.find((r) => r.id === selectedReportId) ?? null
+
+  const contextBundle = buildContextBundle(reportInv, 'documentation', 'redact_sensitive')
+  const kindCounts = contextBundle.items.reduce<Record<string, number>>((acc, item) => {
+    acc[item.kind] = (acc[item.kind] ?? 0) + 1
+    return acc
+  }, {})
+
+  if (selectedReport) {
+    return (
+      <div className="space-y-5">
+        <ReportDetailPanel report={selectedReport} onBack={() => setSelectedReportId(null)} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -65,7 +79,7 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {/* Report context selector — independent of global active case */}
+      {/* Report context selector */}
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/40 px-4 py-3">
         <div className="flex items-center justify-between mb-2">
           <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Report Context</div>
@@ -84,7 +98,7 @@ export function ReportsPage() {
             onChange={(e) => setReportCaseId(e.target.value || null)}
             className="w-full text-xs bg-gray-900 border border-gray-700/50 text-gray-300 rounded-lg px-2 py-1.5"
           >
-            <option value="">No case selected (standalone report)</option>
+            <option value="">— No report context (choose a case) —</option>
             {investigations.map((inv) => (
               <option key={inv.id} value={inv.id}>{inv.title}</option>
             ))}
@@ -92,14 +106,30 @@ export function ReportsPage() {
         ) : (
           <p className="text-xs text-gray-600">No investigations yet.</p>
         )}
-        {reportInv && contextMeta && (
-          <p className="text-[10px] text-gray-600 mt-1.5">{contextMeta}</p>
+        {!reportInv && (
+          <p className="text-[10px] text-amber-500/80 mt-1.5">
+            No report context selected. Case-specific reports need a case; pick one above (Scratch Mode does not auto-use the last case).
+          </p>
+        )}
+        {reportInv && contextBundle.items.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {Object.entries(kindCounts).map(([kind, count]) => (
+              <span key={kind} className="text-[9px] px-1.5 py-0.5 rounded border border-gray-700/40 text-gray-500 font-mono">
+                {count} {kind}s
+              </span>
+            ))}
+            <span className="text-[9px] text-gray-700">·</span>
+            <span className="text-[9px] text-gray-600 font-mono">redact_sensitive</span>
+          </div>
         )}
       </div>
 
       {/* Generate prompts */}
       <div className="rounded-xl border border-gray-700/50 bg-gray-900/60 p-4">
-        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Generate with AI</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Generate with AI</div>
+          <ModelModeBadge />
+        </div>
         {reportInv && (
           <p className="text-[10px] text-gray-600 mb-2">Using: {reportInv.title}</p>
         )}
@@ -111,7 +141,7 @@ export function ReportsPage() {
           ].map((prompt) => (
             <button
               key={prompt}
-              onClick={() => setPendingQuery(prompt)}
+              onClick={() => void submitCommand(prompt, { source: 'report_button' })}
               className="text-xs px-2.5 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
             >
               {prompt}
@@ -125,9 +155,10 @@ export function ReportsPage() {
         {FIXTURE_REPORTS.map((report) => {
           const v = VARIANT_STYLE[report.variant]
           return (
-            <div
+            <button
               key={report.id}
-              className="rounded-xl border border-gray-700/50 bg-gray-900/60 px-4 py-3 hover:border-gray-600/60 transition-colors cursor-pointer flex items-center gap-4"
+              onClick={() => setSelectedReportId(report.id)}
+              className="w-full text-left rounded-xl border border-gray-700/50 bg-gray-900/60 px-4 py-3 hover:border-gray-500/60 hover:bg-gray-800/60 transition-colors flex items-center gap-4"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
@@ -143,7 +174,8 @@ export function ReportsPage() {
               <span className="text-[10px] px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/25 shrink-0">
                 complete
               </span>
-            </div>
+              <span className="text-gray-600 text-sm shrink-0">→</span>
+            </button>
           )
         })}
       </div>

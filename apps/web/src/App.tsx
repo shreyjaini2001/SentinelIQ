@@ -13,6 +13,10 @@ import { AssetsPage } from './pages/AssetsPage'
 import { DataSourcesPage } from './pages/DataSourcesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { useSessionStore } from './stores/sessionStore'
+import { useInvestigationStore } from './stores/investigationStore'
+import { useWorkspaceStore } from './stores/workspaceStore'
+import { workspaceIdFor } from './utils/workspaceMemory'
+import type { WorkspacePageId } from './types/workspace'
 
 export default function App() {
   // Navigation history — internal stack + browser history sync
@@ -21,7 +25,14 @@ export default function App() {
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
 
-  const { actionData, logsKql, setResult, setChips } = useSessionStore()
+  const { logsKql, setResult, setChips, clear } = useSessionStore()
+  const activeInvestigationId = useInvestigationStore((s) => s.activeInvestigationId)
+
+  // Remember the last page per workspace (Scratch or active case) so switching cases can
+  // restore where the analyst left off. UI continuity only — no investigation memory here.
+  useEffect(() => {
+    useWorkspaceStore.getState().setLastPage(workspaceIdFor(activeInvestigationId), currentPage as WorkspacePageId)
+  }, [currentPage, activeInvestigationId])
 
   const navigate = (page: PageId) => {
     const { stack, idx } = navRef.current
@@ -34,6 +45,20 @@ export default function App() {
     history.pushState({ page, idx: newIdx }, '', `#${page}`)
     setResult(null)
     setChips([])
+  }
+
+  // Soft "return to SOC home": close any open command overlay + clear transient command
+  // result, then go to Overview. Deliberately does NOT reload or touch persisted stores —
+  // active investigation, alerts, logs editor, saved/recent queries, and evidence all stay.
+  const goHome = () => {
+    clear() // closes the command overlay by clearing transient result/actionData/progress
+    if (currentPage === 'overview') {
+      // Already home — just ensure any leftover query result is cleared.
+      setResult(null)
+      setChips([])
+      return
+    }
+    navigate('overview')
   }
 
   const goBack = () => {
@@ -64,10 +89,9 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePop)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-navigate to Overview when an AI action panel result arrives
-  useEffect(() => {
-    if (actionData) navigate('overview')
-  }, [actionData]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Command results now float in the global command-palette overlay above whatever
+  // page the analyst is on — we no longer force-navigate to Overview when a result
+  // arrives, so the underlying page state is preserved (e.g. triage from Alerts).
 
   // Auto-navigate to Logs when a query is sent there via "Open in Logs"
   useEffect(() => {
@@ -81,16 +105,21 @@ export default function App() {
       <header className="sticky top-0 z-40 border-b border-gray-800/80 bg-gray-950/80 backdrop-blur">
         <div className="flex items-center gap-3 px-4 py-3">
 
-          {/* Logo */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Logo — soft Home / return to SOC dashboard */}
+          <button
+            onClick={goHome}
+            title="Return to SOC home"
+            aria-label="Return to SOC home"
+            className="flex items-center gap-2 shrink-0 rounded-lg px-1 py-0.5 -ml-1 hover:bg-gray-800/50 transition-colors"
+          >
             <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center">
               <span className="text-white text-xs font-bold tracking-tight">S</span>
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v0.9.1</span>
+              <span className="text-[10px] text-gray-600 font-mono">v1.1.5</span>
             </div>
-          </div>
+          </button>
 
           {/* Back / Forward */}
           <div className="hidden sm:flex items-center gap-0.5 shrink-0">

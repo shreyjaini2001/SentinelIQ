@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
 import { submitCommand } from '../utils/commandRunner'
 import { useInvestigationStore } from '../stores/investigationStore'
-import { useLogsStore } from '../stores/logsStore'
+import { useLogsStore, SCRATCH_CASE_TARGET } from '../stores/logsStore'
 import { generateMockResults } from '../utils/mockResults'
 import { getQueryTitle, summarizeQueryResult } from '../utils/querySummary'
 import { QueryResultTable } from '../components/query/QueryResultTable'
@@ -90,8 +90,16 @@ export function LogsPage() {
   const [noteSaved, setNoteSaved] = useState(false)
   const [noteSavedInv, setNoteSavedInv] = useState<string | null>(null)
 
-  // Effective case target: explicit selection or fall back to active investigation
-  const effectiveCaseTargetId = caseTargetId ?? activeInvestigationId
+  // Case target resolution:
+  //   - SCRATCH  → explicitly no target (null); results stay scratch, save/pin disabled.
+  //   - a real id → that case.
+  //   - null     → unset, default to the active investigation.
+  const isScratch = caseTargetId === SCRATCH_CASE_TARGET
+  const effectiveCaseTargetId = isScratch ? null : (caseTargetId ?? activeInvestigationId)
+  // Value shown in the <select>: scratch sentinel, explicit case, active default, else scratch.
+  const caseSelectValue = isScratch
+    ? SCRATCH_CASE_TARGET
+    : (caseTargetId ?? activeInvestigationId ?? SCRATCH_CASE_TARGET)
   const targetInv = investigations.find((i) => i.id === effectiveCaseTargetId)
 
   // Consume KQL sent from QueryPreviewCard "Open in Logs"
@@ -448,21 +456,24 @@ export function LogsPage() {
               </div>
 
               {/* Case target + save-to-case row */}
-              <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800/40 bg-gray-900/30">
+              <div
+                data-overlay-ignore
+                className="flex items-center gap-3 px-4 py-2 border-b border-gray-800/40 bg-gray-900/30"
+              >
                 <span className="text-[10px] text-gray-600 shrink-0">Case target:</span>
                 <select
-                  value={caseTargetId ?? activeInvestigationId ?? ''}
-                  onChange={(e) => setCaseTargetId(e.target.value || null)}
+                  value={caseSelectValue}
+                  onChange={(e) => setCaseTargetId(e.target.value)}
                   className="flex-1 min-w-0 text-[11px] bg-gray-800/60 text-gray-300 border border-gray-700/40 rounded px-2 py-0.5 outline-none focus:border-gray-600 transition-colors"
                 >
-                  <option value="">— None (scratch only) —</option>
+                  <option value={SCRATCH_CASE_TARGET}>— None (scratch only) —</option>
                   {investigations.map((inv) => (
                     <option key={inv.id} value={inv.id}>
                       {inv.title} ({inv.severity})
                     </option>
                   ))}
                 </select>
-                {effectiveCaseTargetId && (
+                {effectiveCaseTargetId ? (
                   <button
                     onClick={handleSaveToCase}
                     disabled={!!saveFlash}
@@ -470,6 +481,13 @@ export function LogsPage() {
                   >
                     {saveFlash ? 'Saved ✓' : 'Save to Case'}
                   </button>
+                ) : (
+                  <span
+                    className="shrink-0 text-[10px] px-2 py-1 rounded border border-gray-700/40 text-gray-600"
+                    title="Select a case to enable Save to Case / Pin / Save as Note"
+                  >
+                    Scratch mode — select a case to save
+                  </span>
                 )}
               </div>
 

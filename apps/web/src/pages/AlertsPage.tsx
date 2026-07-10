@@ -1,74 +1,239 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
-import { useSessionStore } from '../stores/sessionStore'
+import { useAlertStore } from '../stores/alertStore'
+import { triageAlerts } from '../utils/alertTriageEngine'
+import { AlertTriageWorkspace } from '../components/alerts/AlertTriageWorkspace'
+import { AlertDetailPanel } from '../components/alerts/AlertDetailPanel'
+import type { AlertStatus, AlertSeverity, AlertTriageScopeType, MockAlert, ClientTriageResult } from '../types/alerts'
 
-const SEVERITY_CONFIG = {
-  critical:     { color: 'text-red-400',    dot: 'bg-red-500' },
-  high:         { color: 'text-orange-400', dot: 'bg-orange-500' },
-  medium:       { color: 'text-amber-400',  dot: 'bg-amber-500' },
-  low:          { color: 'text-gray-400',   dot: 'bg-gray-500' },
-} as const
-
-const STATUS_CONFIG = {
-  open:          { label: 'Open',          style: 'text-blue-300 bg-blue-500/10 border-blue-500/25' },
-  investigating: { label: 'Investigating', style: 'text-orange-300 bg-orange-500/10 border-orange-500/25' },
-  acknowledged:  { label: 'Acknowledged', style: 'text-gray-400 bg-gray-500/10 border-gray-500/25' },
-  closed:        { label: 'Closed',       style: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25' },
-} as const
-
-type Severity = keyof typeof SEVERITY_CONFIG
-type Status   = keyof typeof STATUS_CONFIG
-
-interface Alert {
-  id: string; time: string; name: string
-  severity: Severity; entity: string; status: Status
+const SEV_CONFIG: Record<AlertSeverity, { color: string; dot: string }> = {
+  critical: { color: 'text-red-400',    dot: 'bg-red-500' },
+  high:     { color: 'text-orange-400', dot: 'bg-orange-500' },
+  medium:   { color: 'text-amber-400',  dot: 'bg-amber-500' },
+  low:      { color: 'text-gray-400',   dot: 'bg-gray-500' },
 }
 
-const FIXTURE_ALERTS: Alert[] = [
-  { id: 'ALT-001', time: '08:23', name: 'Impossible Travel Detected',        severity: 'critical', entity: 'jsmith@corp.com',     status: 'open' },
-  { id: 'ALT-002', time: '08:15', name: 'Privileged Group Modification',     severity: 'high',     entity: 'admin-svc',           status: 'open' },
-  { id: 'ALT-003', time: '07:58', name: 'GeoAnomaly: New Country Login',     severity: 'high',     entity: 'mwatson@corp.com',    status: 'open' },
-  { id: 'ALT-004', time: '07:32', name: 'Large Outbound Data Transfer',      severity: 'high',     entity: 'DESKTOP-A7B',         status: 'investigating' },
-  { id: 'ALT-005', time: '06:45', name: 'Lateral Movement via SMB',          severity: 'high',     entity: 'SERVER-DC01',         status: 'open' },
-  { id: 'ALT-006', time: '06:12', name: 'Encoded PowerShell Execution',      severity: 'medium',   entity: 'DESKTOP-42',          status: 'open' },
-  { id: 'ALT-007', time: '05:55', name: 'Multiple Failed MFA Attempts',      severity: 'medium',   entity: 'tbrown@corp.com',     status: 'open' },
-  { id: 'ALT-008', time: '05:30', name: 'New Service Account Created',       severity: 'medium',   entity: 'svc-backup-new',      status: 'acknowledged' },
-  { id: 'ALT-009', time: '04:15', name: 'OAuth App Consent Granted',         severity: 'medium',   entity: 'apps-team@corp.com',  status: 'open' },
-  { id: 'ALT-010', time: '03:45', name: 'Suspicious Sign-In Activity',       severity: 'low',      entity: 'guest_user_1',        status: 'open' },
-  { id: 'ALT-011', time: '03:22', name: 'Failed Password Reset Attempt',     severity: 'low',      entity: 'jdoe@corp.com',       status: 'acknowledged' },
-  { id: 'ALT-012', time: '02:58', name: 'Non-Standard Port Communication',   severity: 'low',      entity: 'WORKSTATION-07',      status: 'open' },
+const STATUS_STYLE: Record<AlertStatus, string> = {
+  open:          'text-blue-300 bg-blue-500/10 border-blue-500/25',
+  investigating: 'text-orange-300 bg-orange-500/10 border-orange-500/25',
+  acknowledged:  'text-gray-400 bg-gray-500/10 border-gray-500/25',
+  closed:        'text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
+  suppressed:    'text-gray-500 bg-gray-700/10 border-gray-600/25',
+  false_positive:'text-gray-500 bg-gray-700/10 border-gray-600/25',
+  escalated:     'text-purple-400 bg-purple-500/10 border-purple-500/25',
+}
+
+const STATUS_LABEL: Record<AlertStatus, string> = {
+  open:          'Open',
+  investigating: 'Investigating',
+  acknowledged:  'Acknowledged',
+  closed:        'Closed',
+  suppressed:    'Suppressed',
+  false_positive:'False Positive',
+  escalated:     'Escalated',
+}
+
+type StatusTab = AlertStatus | 'all'
+
+const STATUS_TABS: Array<{ id: StatusTab; label: string }> = [
+  { id: 'all',          label: 'All' },
+  { id: 'open',         label: 'Open' },
+  { id: 'investigating',label: 'Investigating' },
+  { id: 'acknowledged', label: 'Acknowledged' },
+  { id: 'closed',       label: 'Closed' },
+  { id: 'false_positive',label: 'False Positive' },
 ]
 
-export function AlertsPage() {
-  const { setPendingQuery } = useSessionStore()
-  const [filter, setFilter] = useState<Severity | null>(null)
-
-  const alerts = filter ? FIXTURE_ALERTS.filter(a => a.severity === filter) : FIXTURE_ALERTS
+function AlertRow({
+  alert,
+  selected,
+  onToggle,
+  onOpen,
+}: {
+  alert: MockAlert
+  selected: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
+  const sev = SEV_CONFIG[alert.severity]
+  const statusCls = STATUS_STYLE[alert.status]
+  const timestamp = alert.createdAt.replace('T', ' ').slice(5, 16)
 
   return (
-    <div className="space-y-5">
+    <tr
+      onClick={onOpen}
+      className={clsx(
+        'border-b border-gray-800/30 hover:bg-gray-800/25 transition-colors cursor-pointer',
+        selected && 'bg-blue-500/5',
+      )}
+    >
+      {/* Checkbox */}
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          className="rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"
+        />
+      </td>
+      {/* Time */}
+      <td className="px-3 py-2.5 text-xs text-gray-500 font-mono whitespace-nowrap">{timestamp}</td>
+      {/* Alert name */}
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <div className={clsx('w-1.5 h-1.5 rounded-full shrink-0', sev.dot)} />
+          <span className="text-xs text-gray-200 truncate max-w-[240px]">{alert.name}</span>
+        </div>
+      </td>
+      {/* Severity */}
+      <td className="px-3 py-2.5">
+        <span className={clsx('text-[10px] font-semibold uppercase tracking-wide', sev.color)}>
+          {alert.severity}
+        </span>
+      </td>
+      {/* Entity */}
+      <td className="px-3 py-2.5 text-xs text-gray-400 font-mono max-w-[160px] truncate">{alert.entity}</td>
+      {/* Detection rule */}
+      <td className="px-3 py-2.5 text-[10px] text-gray-600 font-mono truncate max-w-[160px] hidden lg:table-cell">
+        {alert.detectionRule}
+      </td>
+      {/* Status */}
+      <td className="px-3 py-2.5">
+        <span className={clsx('text-[10px] px-1.5 py-0.5 rounded border', statusCls)}>
+          {STATUS_LABEL[alert.status]}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+export function AlertsPage() {
+  const {
+    filters,
+    visibleAlerts,
+    filteredAlerts,
+    stats,
+    selectedIds,
+    hasMore,
+    getTriageAlerts,
+    setStatusFilter,
+    setSeverityFilter,
+    toggleSelection,
+    selectAll,
+    clearSelection,
+    loadMore,
+  } = useAlertStore()
+
+  // Page-local triage + detail state — triage from the Alerts buttons renders IN the page,
+  // NOT in the global command overlay (that path is reserved for global command-bar prompts).
+  const [triageResult, setTriageResult] = useState<ClientTriageResult | null>(null)
+  const [detailAlertId, setDetailAlertId] = useState<string | null>(null)
+
+  const s = stats()
+  const visible = visibleAlerts()
+  const filtered = filteredAlerts()
+  const selCount = selectedIds.size
+
+  function handleTriageScope(scope: AlertTriageScopeType) {
+    // Compute triage locally (deterministic engine, no backend) and show it in-page.
+    const alerts = getTriageAlerts(scope)
+    setTriageResult(triageAlerts(alerts, scope))
+    setDetailAlertId(null)
+  }
+
+  const detailVerdict = triageResult?.verdicts.find((v) => v.alert_id === detailAlertId)
+
+  return (
+    <div className="space-y-4">
+
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-white">Alerts</h1>
-          <p className="text-xs text-gray-500 mt-0.5">190 total · 3 critical · updated just now</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {s.total} total · {s.critical} critical · {s.open} open
+          </p>
         </div>
-        <button
-          onClick={() => setPendingQuery('Triage my open alerts')}
-          className="px-3 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-xs font-medium hover:bg-purple-600/30 transition-colors"
-        >
-          AI Triage →
-        </button>
+        <div className="flex items-center gap-2">
+          {selCount > 0 && (
+            <button
+              onClick={() => handleTriageScope('selected')}
+              className="px-3 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-medium hover:bg-blue-600/30 transition-colors"
+            >
+              Triage {selCount} selected →
+            </button>
+          )}
+          <button
+            onClick={() => handleTriageScope('visible_open')}
+            className="px-3 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-xs font-medium hover:bg-purple-600/30 transition-colors"
+          >
+            Triage visible →
+          </button>
+          <button
+            onClick={() => handleTriageScope('all_open')}
+            className="px-3 py-1.5 rounded-lg bg-red-600/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-600/20 transition-colors"
+          >
+            Triage all open →
+          </button>
+        </div>
       </div>
 
-      {/* Severity filter pills */}
-      <div className="flex items-center gap-2">
+      {/* In-page triage workspace (Alerts-initiated triage stays here, not the global overlay) */}
+      {triageResult && (
+        <AlertTriageWorkspace
+          result={triageResult}
+          onClose={() => setTriageResult(null)}
+          onOpenAlert={setDetailAlertId}
+        />
+      )}
+
+      {/* Alert detail panel */}
+      {detailAlertId && (
+        <AlertDetailPanel
+          alertId={detailAlertId}
+          verdict={detailVerdict}
+          onClose={() => setDetailAlertId(null)}
+        />
+      )}
+
+      {/* Status tabs */}
+      <div className="flex items-center gap-1 border-b border-gray-800/60 pb-0">
+        {STATUS_TABS.map((tab) => {
+          const active = filters.status === tab.id
+          const count = tab.id === 'all' ? s.total : s[tab.id as AlertStatus] ?? 0
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={clsx(
+                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+                active
+                  ? 'border-blue-500 text-blue-300'
+                  : 'border-transparent text-gray-500 hover:text-gray-300',
+              )}
+            >
+              {tab.label}
+              {count > 0 && (
+                <span className={clsx(
+                  'ml-1.5 text-[10px] font-mono px-1 py-0.5 rounded',
+                  active ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-800/60 text-gray-600',
+                )}>
+                  {count}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Severity filter pills + selection controls */}
+      <div className="flex items-center gap-2 flex-wrap">
         {(['all', 'critical', 'high', 'medium', 'low'] as const).map((sev) => {
-          const active = sev === 'all' ? !filter : filter === sev
+          const active = sev === 'all' ? filters.severity === 'all' : filters.severity === sev
           return (
             <button
               key={sev}
-              onClick={() => setFilter(sev === 'all' ? null : sev)}
+              onClick={() => setSeverityFilter(sev === 'all' ? 'all' : sev)}
               className={clsx(
                 'text-xs px-2.5 py-1 rounded-lg border transition-colors capitalize',
                 active
@@ -76,11 +241,28 @@ export function AlertsPage() {
                   : 'border-gray-700/50 text-gray-500 hover:text-gray-300 hover:border-gray-600',
               )}
             >
-              {sev === 'all' ? 'All' : sev}
+              {sev === 'all' ? 'All Severity' : sev}
             </button>
           )
         })}
-        <span className="ml-auto text-[10px] text-gray-600">{alerts.length} alerts</span>
+        <span className="ml-auto text-[10px] text-gray-600">
+          {filtered.length} matching
+        </span>
+        {selCount > 0 ? (
+          <button
+            onClick={clearSelection}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Clear {selCount} selected ×
+          </button>
+        ) : (
+          <button
+            onClick={selectAll}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Select visible
+          </button>
+        )}
       </div>
 
       {/* Alert table */}
@@ -88,55 +270,63 @@ export function AlertsPage() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-800/80">
-              {['Time', 'Alert Name', 'Severity', 'Entity', 'Status'].map((col) => (
-                <th key={col} className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-4 py-2.5">
+              <th className="px-3 py-2.5 w-8">
+                <input
+                  type="checkbox"
+                  checked={selCount > 0 && selCount === visible.length}
+                  onChange={selCount > 0 ? clearSelection : selectAll}
+                  className="rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"
+                />
+              </th>
+              {['Time', 'Alert Name', 'Severity', 'Entity', 'Detection Rule', 'Status'].map((col) => (
+                <th
+                  key={col}
+                  className={clsx(
+                    'text-left text-[10px] font-semibold text-gray-500 uppercase tracking-widest px-3 py-2.5',
+                    col === 'Detection Rule' && 'hidden lg:table-cell',
+                  )}
+                >
                   {col}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {alerts.map((alert) => {
-              const sev = SEVERITY_CONFIG[alert.severity]
-              const stat = STATUS_CONFIG[alert.status]
-              return (
-                <tr
-                  key={alert.id}
-                  className="border-b border-gray-800/30 hover:bg-gray-800/25 transition-colors cursor-pointer"
-                >
-                  <td className="px-4 py-2.5 text-xs text-gray-500 font-mono whitespace-nowrap">{alert.time}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${sev.dot}`} />
-                      <span className="text-xs text-gray-200">{alert.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wide ${sev.color}`}>
-                      {alert.severity}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-400 font-mono">{alert.entity}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={clsx('text-[10px] px-1.5 py-0.5 rounded border', stat.style)}>
-                      {stat.label}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
+            {visible.map((alert) => (
+              <AlertRow
+                key={alert.id}
+                alert={alert}
+                selected={selectedIds.has(alert.id)}
+                onToggle={() => toggleSelection(alert.id)}
+                onOpen={() => setDetailAlertId(alert.id)}
+              />
+            ))}
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-xs text-gray-600">
+                  No alerts match the current filters
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-        <div className="px-4 py-2 border-t border-gray-800/60 flex items-center justify-between">
-          <span className="text-[10px] text-gray-600">Showing {alerts.length} of 190 alerts · Fixture data</span>
-          <button
-            onClick={() => setPendingQuery('Triage my open alerts')}
-            className="text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
-          >
-            AI triage all →
-          </button>
+
+        {/* Footer */}
+        <div className="px-4 py-2.5 border-t border-gray-800/60 flex items-center justify-between">
+          <span className="text-[10px] text-gray-600">
+            Showing {visible.length} of {filtered.length} · {s.total} total · Mock data
+          </span>
+          {hasMore() && (
+            <button
+              onClick={loadMore}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Load more ↓
+            </button>
+          )}
         </div>
       </div>
+
     </div>
   )
 }

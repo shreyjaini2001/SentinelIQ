@@ -178,6 +178,7 @@ Click any of the four buttons on the welcome screen:
 | v0.8.3 | 2026-05-25 | Evidence Manual Actions Finalization — entity note format + confirmation, relationship note composer (see below) |
 | v0.9.0 | 2026-05-26 | Vendor-Agnostic Query Plan and SIEM Adapter Foundation — neutral QueryPlan, Sentinel/Splunk/Elastic adapters, platform selector (see below) |
 | v0.9.1 | 2026-05-26 | QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution (see below) |
+| v1.0.0 | 2026-05-27 | AI Orchestration and Privacy-Aware Context Builder — context assembly, PII redaction, mock orchestrator, execution trace, save actions (see below) |
 
 ### v0.9.0 — Vendor-Agnostic Query Plan and SIEM Adapter Foundation
 
@@ -267,6 +268,517 @@ Click any of the four buttons on the welcome screen:
 - SPL and ES|QL templates not yet wired into the Logs page template panel (templates remain Sentinel/KQL)
 - Platform field mappings are representative, not production-validated against real Splunk/Elastic deployments
 - No real connector integration — all mock
+
+---
+
+### v1.0.0 — AI Orchestration and Privacy-Aware Context Builder
+
+**What changed:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/aiOrchestration.ts` | New: `AiRedactionPolicy`, `AiContextItem`, `AiContextBundle`, `AiPrivacyFinding`, `AiTraceStep`, `AiExecutionTrace`, `AiOrchestrationResult`, `AiModelProvider` |
+| `apps/web/src/utils/contextBuilder.ts` | New: `buildContextBundle(inv, taskType, policy)` — assembles minimum context per task type from turns/artifacts/notes/findings/entities; `HANDLER_CONTEXT_POLICY` map at module scope |
+| `apps/web/src/utils/privacyRedaction.ts` | New: `applyRedactionToBundle(bundle)` — detects and replaces emails, IPs, hostnames, SHA256 hashes, encoded command lines; `redact_sensitive` policy only, `local_only`/`allow_full_context` pass through |
+| `apps/web/src/utils/mockModelProvider.ts` | New: `AiModelProvider` interface + `MockModelProvider` (deterministic, intent-keyed); TODO stubs for `ClaudeProvider` and `LocalModelProvider` |
+| `apps/web/src/utils/aiOrchestrator.ts` | New: `buildOrchestrationForAction(handler, prompt)` — synchronous; reads `useInvestigationStore.getState()` (Zustand non-React accessor); 6-step trace: classify → select investigation → load context → apply redaction → generate mock → await save |
+| `apps/web/src/components/ai/ModelModeBadge.tsx` | New: three pill badges — model name (purple), redaction policy (amber), "External: Off" (gray) |
+| `apps/web/src/components/ai/ContextUsedPanel.tsx` | New: collapsible — investigation title, per-kind item counts, redaction count, privacy mode, model mode |
+| `apps/web/src/components/ai/ExecutionTrace.tsx` | New: collapsible numbered step list with label + detail per step |
+| `apps/web/src/components/ai/SaveAiOutputActions.tsx` | New: Save as Note (`addNote`), Pin as Finding (`addPinnedFinding`), Copy (clipboard), Dismiss (`sessionStore.clear()`); disabled when `!hasActiveInvestigation` |
+| `apps/web/src/pages/OverviewPage.tsx` | `buildOrchestrationForAction` called at render when `actionData` present; `ModelModeBadge` in AI Result header; `ContextUsedPanel` + `ExecutionTrace` in OrchestrationMeta below MainPanel; `SaveAiOutputActions` in OrchestrationMeta for non-documentation/handoff handlers; `orchestration` passed to `DocumentationPanel` + `HandoffBriefingPanel` |
+| `apps/web/src/pages/ReportsPage.tsx` | `ModelModeBadge` in Generate with AI header; `buildContextBundle` for report context preview showing per-kind item counts and redaction policy |
+| `apps/web/src/components/panels/DocumentationPanel.tsx` | Added `orchestration?: AiOrchestrationResult` prop; when present: `ContextUsedPanel` replaces raw contextMeta text; `SaveAiOutputActions` replaces disabled "Export PDF / Copy Markdown / Send to ITSM" buttons |
+| `apps/web/src/components/panels/HandoffBriefingPanel.tsx` | Added `orchestration?: AiOrchestrationResult` prop; `ContextUsedPanel` + `SaveAiOutputActions` shown at bottom when present |
+| `apps/web/src/App.tsx` | Version bumped to v1.0.0 |
+
+**Architecture:**
+- `buildOrchestrationForAction` is synchronous — no async, no network calls, deterministic per call
+- Uses `useInvestigationStore.getState()` (not React hook) to read store state from a plain utility function
+- `HANDLER_CONTEXT_POLICY` controls which context item kinds are relevant per task type — documentation/handoff get all kinds, query gets only turns + entities
+- Redaction applies only under `redact_sensitive` policy; `local_only` and `allow_full_context` pass through without modification
+- MockModelProvider is a singleton with deterministic output keyed to intent string
+- `PANEL_INTEGRATED_HANDLERS = Set(['documentation', 'handoff'])` — these panels embed their own save actions, so OverviewPage skips the OrchestrationMeta `SaveAiOutputActions` for them
+
+**Privacy model:**
+- `local_only` — no redaction, data stays in browser, no external API calls (mock mode)
+- `redact_sensitive` — PII patterns detected and replaced before context use: `[EMAIL]`, `[IP]`, `[HASH]`, `[HOST]`, `[ENCODED_CMD]`
+- `allow_full_context` — no redaction; reserved for future real-API mode with explicit analyst consent
+
+**Save behavior:**
+- All saves are explicit — no auto-save
+- "Save as Note" calls `addNote()` with `[intent] content.slice(0,500)`
+- "Pin as Finding" calls `addPinnedFinding()` with first sentence of content
+- "Copy" writes raw content/intent to clipboard
+- "Dismiss" calls `sessionStore.clear()` which clears `actionData`, `currentResult`, and `chips`
+- All save buttons disabled when `!hasActiveInvestigation`
+
+**All prior behaviors preserved:**
+- v0.9 QueryPlan / adapter layer unchanged
+- v0.8 Evidence workspace unchanged
+- Logs / query workflow unchanged
+- No new npm packages installed
+- No backend changes
+
+---
+
+## v1.0.1 — Orchestration Routing, AI Output Rendering, Save Actions, Timestamp Consistency, and Report Detail Navigation
+
+**Date:** 2026-05-27  
+**Status:** Complete — 100 modules, zero TS errors, 145/145 pytest passing
+
+### Summary
+
+Fixed the raw JSON output bug for evidence actions, routed all evidence/relationship prompts through the v1.0 AI orchestration layer, added a unified AI output renderer, made report rows clickable with inline detail view, added a deterministic mock timestamp helper, and added compact indicators to the query planner strip.
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/utils/mockClock.ts` | New: `MOCK_NOW = '2026-05-10T08:45:00Z'`, `mockTs()`, `mockFmtDate(iso?)` — single source of truth for fixture timestamps |
+| `apps/web/src/utils/evidenceActionGenerator.ts` | New: `detectEvidenceAction(text)` — regex pattern matching for summarize/investigate prompts; `generateEvidenceSummary(entity)` — pulls from active investigation store + fixture lines; `generateRelationshipInvestigation(from, to)` — fixture-based relationship evidence; `EvidenceSummaryResult` + `RelationshipInvestigationResult` types |
+| `apps/web/src/utils/aiOrchestrator.ts` | Added `evidence_summary` + `relationship_investigation` to `HANDLER_INTENT` and `HANDLER_LABEL` maps |
+| `apps/web/src/utils/contextBuilder.ts` | Added `evidence_summary` + `relationship_investigation` to `HANDLER_CONTEXT_POLICY` (evidence: turn/artifact/finding/entity; relationship: turn/artifact/entity) |
+| `apps/web/src/components/ai/AiOutputPanel.tsx` | New: unified AI output renderer — title, ModelModeBadge in header, summary, evidence lines list, recommended actions list, ContextUsedPanel + ExecutionTrace + SaveAiOutputActions at bottom |
+| `apps/web/src/components/reports/ReportDetailPanel.tsx` | New: deterministic mock report detail — 4 variants (executive/technical/handoff/regulatory) with fixture sections; Copy Markdown + Back button |
+| `apps/web/src/components/SearchBar/ActionOutput.tsx` | Added `isRawJson()` guard — detects `{`/`[` prefix + JSON.parse test; shows "Result available in Overview panel" fallback instead of raw JSON |
+| `apps/web/src/components/SearchBar/SearchBar.tsx` | Added `evidence_summary` + `relationship_investigation` to `hasDedicatedPanel` list |
+| `apps/web/src/components/SearchBar/QueryPreviewCard.tsx` | Added compact `Mock Query Planner · External: Off` indicator to scope strip (right-aligned, gray-700 font-mono) |
+| `apps/web/src/hooks/useSearchBar.ts` | Added client-side intercept block before `api.streamAction()`: calls `detectEvidenceAction()`, generates result locally, calls `setActionData`/`setActionOutput`, records turn+artifact in investigation store, returns without hitting backend; added `evidence_summary`/`relationship_investigation` to `HANDLER_TO_ARTIFACT_TYPE`, `buildArtifactTitle`, `buildResultSummary` |
+| `apps/web/src/pages/OverviewPage.tsx` | Added `AiOutputPanel` import + `EvidenceSummaryResult`/`RelationshipInvestigationResult` types; added `evidence_summary` + `relationship_investigation` cases in `MainPanel`; added both to `PANEL_INTEGRATED_HANDLERS` |
+| `apps/web/src/pages/ReportsPage.tsx` | Removed `setPendingQuery` dependency; generate buttons use `submitCommand` with `report_button` source; report rows changed from `div` to `button` with `onClick → setSelectedReportId`; `ReportDetailPanel` rendered inline when a report is selected; `→` arrow indicator on each row |
+| `apps/web/src/App.tsx` | Version bumped to v1.0.1 |
+
+### Root Cause Fixed
+
+Evidence actions ("Summarize evidence for jsmith@corp.com", "Investigate relationship between X and Y") routed to the backend generic mock handler which returned `{"result":"Mock response","note":"Mock LLM active..."}`. This JSON was passed as `actionOutput` string, and because neither `evidence_summary` nor `relationship_investigation` were in `hasDedicatedPanel`, `ActionOutput.tsx` rendered raw JSON as text.
+
+Fix: client-side intercept in `useSearchBar.ts` matches evidence prompts before calling `api.streamAction()` and generates rich results from the investigation store + fixture data. Both handlers added to `hasDedicatedPanel`. `ActionOutput.tsx` has a secondary JSON guard as safety net.
+
+### Architecture
+
+- `detectEvidenceAction()` uses regex: `/^summarize evidence for (.+)$/i`, `/^investigate relationship between (.+?) and (.+?)$/i`, plus variants — no fuzzy matching
+- `generateEvidenceSummary()` reads `useInvestigationStore.getState()` (non-React Zustand accessor) and augments fixture lines with investigation-derived counts
+- `buildOrchestrationForAction()` is called in OverviewPage at render time (same as v1.0.0) — evidence handlers now have intent/label so the trace shows correct labels
+- `AiOutputPanel` is self-contained: includes its own ContextUsedPanel, ExecutionTrace, SaveAiOutputActions — marked as PANEL_INTEGRATED_HANDLER so OverviewPage's OrchestrationMeta doesn't duplicate them
+
+**Test status:** 145/145 pytest, 100 modules, 439KB bundle (vite v6)
+
+---
+
+## v1.0.2 — Orchestration Metadata Deduplication and Single Source of Truth Cleanup
+
+**Date:** 2026-05-27  
+**Status:** Complete — 100 modules, zero TS errors, 145/145 pytest passing
+
+### Root Cause
+
+`OverviewPage.tsx` rendered an `OrchestrationMeta` block (ContextUsedPanel + ExecutionTrace ± SaveAiOutputActions) for every AI action result. For handlers in `PANEL_INTEGRATED_HANDLERS` (documentation, handoff, evidence_summary, relationship_investigation), the `SaveAiOutputActions` was correctly suppressed — but `ContextUsedPanel` and `ExecutionTrace` were still rendered unconditionally. Meanwhile those same panels (AiOutputPanel, DocumentationPanel, HandoffBriefingPanel) also rendered their own `ContextUsedPanel`. Result: `ContextUsedPanel` shown twice, with the risk of inconsistent item counts if the orchestration object were ever recomputed.
+
+Additionally, `DocumentationPanel` and `HandoffBriefingPanel` embedded `ContextUsedPanel + SaveAiOutputActions` but **not** `ExecutionTrace` — so the 6-step trace was only visible via the parent block, meaning suppressing the parent would have hidden it.
+
+### Fix
+
+Three targeted changes, no architectural redesign:
+
+1. **`OverviewPage.tsx`**: Changed the OrchestrationMeta block condition from `{orchestration && ...}` to `{orchestration && actionData && !PANEL_INTEGRATED_HANDLERS.has(actionData.handler) && ...}` — the entire block (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) is now skipped for any handler that owns its own metadata. The now-redundant inner `!PANEL_INTEGRATED_HANDLERS` guard on `SaveAiOutputActions` was removed (outer guard makes it dead code).
+
+2. **`DocumentationPanel.tsx`**: Added `ExecutionTrace` import and rendering alongside `ContextUsedPanel + SaveAiOutputActions`. The panel now owns all three orchestration components and is self-contained.
+
+3. **`HandoffBriefingPanel.tsx`**: Same — added `ExecutionTrace` to the existing `ContextUsedPanel + SaveAiOutputActions` block.
+
+### Rendering contract post-fix
+
+| Handler | Owns metadata in panel | Parent OrchestrationMeta |
+|---------|----------------------|--------------------------|
+| evidence_summary | AiOutputPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions + ModelModeBadge) | Suppressed |
+| relationship_investigation | AiOutputPanel (same) | Suppressed |
+| documentation | DocumentationPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) | Suppressed |
+| handoff | HandoffBriefingPanel (ContextUsedPanel + ExecutionTrace + SaveAiOutputActions) | Suppressed |
+| triage / hunt / timeline / blast_radius / comparative / rule_suggestion / runbook / noise_coaching | None | Rendered once |
+
+### Same orchestration object
+
+All panels receive the same `orchestration` object prop (computed once in `OverviewPage` via `buildOrchestrationForAction`). No recomputation — counts are always consistent.
+
+### Known limitations
+
+None. All 10 action handlers verified to show metadata exactly once.
+
+**Test status:** 145/145 pytest, 100 modules, 439KB bundle (vite v6)
+
+---
+
+## v1.1.0 — Unified Mock SOC Data Layer, Alert Operations, and Triage Scope Correctness
+
+**Date:** 2026-05-27  
+**Status:** Complete — 104 modules, zero TS errors, 145/145 pytest passing
+
+### Summary
+
+Replaced the 12-alert hardcoded fixture with a deterministic 190-alert mock dataset. Built a reactive alert store, scope-aware client-side triage engine, and full AlertsPage rewrite with status tabs, selection, and Load More pagination. Triage prompts now intercept client-side (same pattern as evidence actions) and produce a `ClientTriageResult` with real alert data routed through the new `TriageResultPanel`.
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/alerts.ts` | **New** — `MockAlert`, `AlertSeverity`, `AlertStatus`, `AlertEntityType`, `AlertTriageScopeType`, `TriageDisposition`, `AlertStats`, `AlertTriageScope`, `EnrichedTriageVerdict`, `ClientTriageResult` |
+| `apps/web/src/data/mockSocData.ts` | **New** — 12 anchor alerts (ALT-001–ALT-012, matching existing investigationStore fixture IDs) + 178 synthetically generated from 10 rule templates cycling 16 entities; sorted newest-first; `ALERT_BY_ID` lookup map |
+| `apps/web/src/stores/alertStore.ts` | **New** — Zustand store: `alerts`, `filters`, `visibleCount`, `selectedIds`; computed selectors: `filteredAlerts()`, `visibleAlerts()`, `stats()`, `openCount()`, `hasMore()`, `getTriageAlerts(scope)`; mutations: `setStatusFilter`, `setSeverityFilter`, `loadMore`, `toggleSelection`, `selectAll`, `clearSelection`, `applyStatusChange` |
+| `apps/web/src/utils/alertTriageEngine.ts` | **New** — `detectTriageScope(text)` regex intercept; `triageAlerts(alerts, scope)` deterministic scoring from 13 detection rule patterns; `buildStatusChanges(result)` for batch status application; `EnrichedTriageVerdict` with `tp_probability`, `fp_probability`, `confidence`, `reasoning`, `influencing_fields`, `suggestedStatus` |
+| `apps/web/src/components/alerts/TriageResultPanel.tsx` | **New** — `ClientTriageResult` renderer; scope badge in header; TP/Uncertain/FP stat row; per-alert verdict rows with alert name + entity (not UUID); per-row Mark Investigating / Mark FP / Close buttons; "Apply Triage Decisions" batch footer button; Load more for >15 verdicts |
+| `apps/web/src/pages/AlertsPage.tsx` | **Rewritten** — uses `alertStore`; status tabs (All/Open/Investigating/Acknowledged/Closed/FP) with live counts; severity filter pills; checkbox selection with Select visible / Clear N selected controls; Detection Rule column (hidden on small screens); Load More pagination; Triage visible / Triage all open / Triage N selected header buttons using `submitCommand` |
+| `apps/web/src/pages/OverviewPage.tsx` | Removed static `ALERT_QUEUE` array; added `useAlertStore` — stat cards and alert queue widget derive from `alertStats`; `MainPanel` triage routing: `'scope' in d` → `TriageResultPanel`, else `AlertTriagePanel` (backend fallback) |
+| `apps/web/src/components/AppShell/Sidebar.tsx` | `NAV_MAIN` moved to `NAV_MAIN_BASE` (no badge); `openCount` from `useAlertStore` injected at render time as alert badge; updates reactively when triage decisions are applied |
+| `apps/web/src/hooks/useSearchBar.ts` | Added triage client-side intercept block after evidence intercept: `detectTriageScope(text)` → `getTriageAlerts(scope)` → `triageAlerts(alerts, scope)` → `setActionData`; records turn+artifact in active investigation; returns before `api.streamAction()` |
+| `apps/web/src/App.tsx` | Version bumped to v1.1.0 |
+
+### Architecture
+
+**Client-side triage intercept (same pattern as v1.0.1 evidence intercept):**
+- `detectTriageScope(text)` returns `'visible_open' | 'all_open' | 'selected'` or `null`
+- Scope routing: "selected" → `selectedIds`; "visible" → `visibleAlerts()` filtered to open; else → all open
+- No backend round-trip; `api.streamAction()` never called for triage prompts
+- Result type is `ClientTriageResult` which has `scope` field — discriminant from backend `TriageResult`
+- `OverviewPage.MainPanel` distinguishes: `'scope' in d` routes to `TriageResultPanel`, else falls back to old `AlertTriagePanel`
+
+**Alert lifecycle:**
+- `applyStatusChange(ids, status)` in alertStore mutates alert statuses in-memory
+- Sidebar badge recalculates `openCount()` after apply — decrements as TPs become Investigating
+- Per-row individual overrides also call `applyStatusChange` immediately
+
+**190-alert dataset:**
+- ALT-001–ALT-012: anchor alerts with `linkedInvestigationId` matching `INV-001`/`INV-002` in investigationStore
+- ALT-013–ALT-190: 10 rule templates × cycling USER_ENTITIES (8) + HOST_ENTITIES (8); status from `STATUS_CYCLE` array (predominantly open, with occasional investigating/acknowledged/fp/closed); timestamps spread over 72h window before MOCK_NOW; risk/confidence derived from template base + index variance
+
+**Scoring rules (13 patterns):**
+- impossible/travel → 90% TP (high confidence)
+- credential/dump/lsass → 88% TP (high)
+- c2/beacon/outbound → 82% TP (high)
+- lateral/smb → 79% TP (high)
+- privesc/token → 76% TP (high)
+- encoded/powershell → 68% TP (medium)
+- geo/anomaly/country → 65% TP (medium)
+- mfa/spray → 42% TP (medium)
+- oauth/consent → 38% TP (medium)
+- new service account → 30% TP (medium)
+- password/reset → 22% TP → likely_fp (high)
+- suspicious/signin → 28% TP → likely_fp (low)
+- port/nonstandard → 20% TP → likely_fp (low)
+- fallback → 45% TP (low)
+
+**suggestedStatus logic:**
+- `status === 'open' && tp ≥ 70` → `'investigating'`
+- `status === 'open' && fp ≥ 70` → `'false_positive'`
+- else → unchanged
+
+### Preserved behaviors
+
+- v0.7 Logs/query workflow unchanged
+- v0.8 Evidence workspace unchanged
+- v0.9 QueryPlan/adapters unchanged
+- v1.0 AI orchestration/context panels unchanged
+- Backend `AlertTriagePanel` (backend TriageResult fallback) preserved and tested
+- Backend `triage_handler.py` unchanged — 145/145 pytest still passing
+
+**Test status:** 145/145 pytest, 104 modules, 464KB bundle (vite v6)
+
+---
+
+## v1.1.1 — Command Palette Overlay, Search Result Layout Stability, and Alert Triage UX Polish
+
+**Date:** 2026-07-07  
+**Status:** Complete — 106 modules, zero TS errors, 145/145 pytest passing
+
+### Root cause fixed
+
+Command-bar results (`QueryPreviewCard`, chips, breadcrumbs, progress, disambiguation, text output) rendered in normal document flow **inside the sticky header** (`SearchBar`'s below-bar block). When a result appeared the header grew taller, pushing the entire page body down and leaving a large blank gap — the UI felt unstable. Additionally, `App.tsx` auto-navigated to Overview on every `actionData`, and `OverviewPage` swapped its whole body to a full-page result canvas, compounding the layout churn.
+
+### Fix — floating command-palette overlay
+
+Command results now render in a floating overlay anchored under the command bar; they never participate in document flow, so the header never grows and the page never shifts.
+
+| File | Change |
+|------|--------|
+| `apps/web/src/components/SearchBar/CommandResultOverlay.tsx` | **New** — floating container: `absolute top-full mt-2 z-50` relative to the SearchBar's `relative` root, so it floats over page content without affecting layout. `max-h-[calc(100vh-140px)]` with internal `overflow-y-auto`; header strip with close (✕) button; Escape-to-close and outside-click-close (clicks on `[data-command-bar]` are ignored so the bar stays interactive). Lightweight console overlay — not a blocking modal, no backdrop that traps focus. |
+| `apps/web/src/components/SearchBar/CommandResultBody.tsx` | **New** — shared result renderer extracted from `OverviewPage.MainPanel`. Renders the query preview card OR the rich action panels (triage/hunt/timeline/blast_radius/documentation/comparative/rule_suggestion/handoff/runbook/noise_coaching/evidence_summary/relationship_investigation) plus the AI orchestration meta (intent + `ModelModeBadge`, `ContextUsedPanel`, `ExecutionTrace`, `SaveAiOutputActions`) for non-panel-integrated handlers. Returns null for unrecognized handlers so the text fallback still applies. |
+| `apps/web/src/components/SearchBar/SearchBar.tsx` | Below-bar content moved into `CommandResultOverlay` (opens only for an active/in-flight result — `currentResult \|\| actionData \|\| actionOutput \|\| isActionRunning \|\| actionProgress \|\| showDisambiguation` — never for lingering chips/breadcrumbs alone). Overlay `onClose` = `sessionStore.clear()`. Added `data-command-bar` to the root so outside-click ignores the bar. Ask button `disabled` no longer depends on `!sessionId` — only empty input or an in-flight command. |
+| `apps/web/src/pages/OverviewPage.tsx` | Removed the full-page result canvas + `MainPanel` + `PANEL_INTEGRATED_HANDLERS` + all panel/orchestration imports and `useSessionStore`. Always renders the dashboard (the stable underlying page). Right column shows `WelcomeState` directly. Kept the v1.1.0 stable `alerts`-selector + `useMemo` stats (no getSnapshot loop). |
+| `apps/web/src/App.tsx` | Removed the auto-navigate-to-Overview-on-`actionData` effect — results now float over whatever page the analyst is on (e.g. triage from Alerts stays on Alerts). Version label → **v1.1.1**. |
+| `apps/web/src/hooks/useSearchBar.ts` | Client-side triage + evidence intercepts now run **before** the backend `classify` call (Step 0). They are deterministic and offline-capable, so those commands always route as actions (never KQL) and keep working when the backend is down — and Alerts-page buttons submit directly with no second Ask click. |
+| `apps/web/src/hooks/useSession.ts` | On `createSession` failure, fall back to a non-persisted `local-<ts>` session id so the command bar stays usable (Ask enabled, client-side actions work); a real id is minted once the API returns. |
+| `apps/web/src/types/alerts.ts` | `EnrichedTriageVerdict` gains `recommendedAction: string`. |
+| `apps/web/src/utils/alertTriageEngine.ts` | Verdicts sorted by `tp_probability` (risk) descending; new `recommendAction(disp, status)` sets a per-verdict recommended action. |
+| `apps/web/src/components/alerts/TriageResultPanel.tsx` | Scope summary sentence ("Triaged N open alerts. Showing top 12 by risk." / "…N selected alert(s)." / "…N visible open alerts from the current page."); shows top 12 by risk with Show-all / Show-top toggles; per-verdict "Rec" recommended-action line always visible. |
+
+### How it behaves
+
+- **No layout shift** — the overlay is `absolute`/out-of-flow, so the sticky header keeps its height and the dashboard/Alerts page underneath stays exactly where it was.
+- **QueryPreviewCard** — renders inside the overlay with full platform selector, QueryPlan inspector, validation, run, save-to-case, open-in-Logs, explanation, and mock-planner indicator intact.
+- **AI action output** — rich panels render in the overlay with model/privacy badge, Context Used, Execution Trace, Save as Note / Pin as Finding / Copy / Dismiss.
+- **Session history** — breadcrumbs live inside the overlay (no page push, no blank region); the overlay closes fully on dismiss.
+- **Triage direct-submit** — Triage selected / visible / all-open buttons on the Alerts page dispatch through `submitCommand` → client-side intercept → result overlay, with no second Ask click. Ask stays enabled when the bar is populated.
+- **Triage scope wording** — every triage result states scope processed, count in scope, count processed, and count shown.
+- **Backend-unavailable resilience** — fallback local session id keeps Ask enabled; classify/query/action failures are caught and degrade gracefully; client-side triage/evidence work fully offline.
+- **Zustand safety** — no unstable selectors reintroduced; `OverviewPage` still selects the primitive `alerts` array and derives stats via `useMemo`. No getSnapshot warning, no maximum-update-depth loop.
+
+### Keyboard / focus
+
+- Escape closes the overlay (and the autocomplete dropdown).
+- Enter submits; Shift+Enter inserts a newline (unchanged).
+- The command bar is never covered — the analyst can immediately type another command.
+
+### Known limitations
+
+- The overlay is width-aligned to the command bar (`max-w-3xl`); very wide panels render in a slightly narrower column than the old full-page canvas.
+- Session-history breadcrumbs are only visible while the overlay is open (alongside an active result), not as a standalone always-on dropdown.
+- If the command bar is expanded to 3 rows, the overlay anchors just under the actual bar (via `top-full`) — no fixed-offset overlap.
+
+**Test status:** 145/145 pytest, 106 modules, 467KB bundle (vite v6). Safe to commit as **v1.1.1-command-overlay-triage-ux**.
+
+---
+
+## v1.1.2 — Shell Navigation, Scratch Mode, and Command Overlay Stability
+
+**Date:** 2026-07-07  
+**Status:** Complete — 107 modules, zero TS errors, 145/145 pytest passing. Stabilization patch (no new features).
+
+### Issues fixed
+
+1. SentinelIQ logo was not a home button.
+2. Logs case-target dropdown could not stay on "None (scratch only)" — it reverted to the active investigation.
+3. Command overlay could open after Ask and immediately close.
+4. Overlay outside-click was too aggressive; native select interactions could be read as outside clicks.
+
+### Changed / new files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/utils/overlayGuards.ts` | **New** — `OVERLAY_OPEN_GRACE_MS = 300` and `isInsideOverlaySafeZone(target, ...roots)`. Centralizes the "is this a genuine outside click?" test: ignores the overlay panel, `[data-command-bar]`, `[data-command-overlay]`, and `[data-overlay-ignore]` subtrees. |
+| `apps/web/src/components/SearchBar/CommandResultOverlay.tsx` | Root marked `data-command-overlay`. Outside-click handler now (a) ignores any click within `OVERLAY_OPEN_GRACE_MS` of open via an `openedAtRef` captured at construction — this absorbs the opening click and StrictMode re-mount races — and (b) uses `isInsideOverlaySafeZone`. Removed the fragile `setTimeout(0)` listener-attach. Escape closes reliably. Minimal `console.debug('[SentinelIQ] overlay:…')` diagnostics (open / unmount / close reason). |
+| `apps/web/src/App.tsx` | Logo/brand is now a `<button onClick={goHome}>` ("Return to SOC home"). `goHome()` calls `sessionStore.clear()` (closes overlay + clears transient command result) then navigates to Overview — it does **not** reload or touch persisted stores, so active case, alerts, logs editor, saved/recent queries, and evidence all survive. If already on Overview it just clears the transient result. Version label → **v1.1.2**. |
+| `apps/web/src/stores/logsStore.ts` | Exported `SCRATCH_CASE_TARGET = 'scratch'` sentinel. `caseTargetId` now has three meanings: `null` (unset → default to active case), a real id, or `'scratch'` (explicitly no case). |
+| `apps/web/src/pages/LogsPage.tsx` | `isScratch = caseTargetId === SCRATCH_CASE_TARGET`; `effectiveCaseTargetId = isScratch ? null : (caseTargetId ?? activeInvestigationId)`. Select `value` and `onChange` use the sentinel (no empty-string coercion). In scratch mode Save-to-Case / Pin / Save-as-Note are hidden and a "Scratch mode — select a case to save" chip is shown; Run Query still works and results stay scratch. The case-target row is marked `data-overlay-ignore` so changing the target never dismisses an open command overlay. |
+
+### Why the overlay was closing immediately
+
+The previous handler attached a `mousedown` listener via `setTimeout(0)` and relied on a `querySelector('[data-command-bar]')` contains-check. Under React StrictMode (dev) the mount → cleanup → mount cycle plus the click/pointer sequence that opened the overlay could race, so the very click that triggered the result was occasionally treated as an "outside click," closing the overlay a fraction of a second after it appeared.
+
+**Fix:** capture `openedAtRef` at construction and unconditionally ignore any outside click within a 300 ms grace window, then apply the shared safe-zone test. The overlay now cannot close within that window, and only closes on a true outside click, the ✕ button, Escape, or explicit dismiss.
+
+### Overlay close rules (v1.1.2)
+
+- **Closes on:** ✕ button, Escape, genuine outside click (after grace window), explicit Dismiss, and intentional navigations ("Open in Logs", logo Home).
+- **Stays open during:** typing a new command, viewing/expanding QueryPreviewCard (Plan, Explanation, Context Used, Execution Trace), switching platform, running a query in the preview, saving to case, changing the Logs case target (`data-overlay-ignore`), and interacting with the Alerts page.
+- Clicking Ask, the command bar, or anything inside the overlay never closes it.
+
+### Preserved (no regressions)
+
+- **No layout shift** — overlay is still `absolute top-full` out of flow; header never grows, page never moves, internal scroll intact.
+- **Ask resilience** — `disabled` depends only on empty input or an in-flight command (no `!sessionId`); `useSession` still falls back to a `local-<ts>` id when the backend is down.
+- **Triage direct-submit** — Alerts Triage selected/visible/all-open still dispatch through `submitCommand` → client-side intercept → overlay, no second Ask click.
+- **Zustand safety** — no unstable selectors reintroduced.
+- v1.1.0 alerts, v1.0 orchestration panels, v0.9 QueryPlan/adapters, v0.8 Evidence, v0.7 Logs all unchanged.
+
+### Known limitations
+
+- The 300 ms open-grace window means an intentional outside-click to dismiss within the first 300 ms of opening is ignored (click again).
+- Scratch selection persists to `localStorage` (`sentinel-iq-logs-v1`), so "None (scratch only)" survives refresh by design.
+- Native `<select>` dropdowns are marked safe only where explicitly needed (Logs case target); other native selects outside the overlay still count as outside clicks.
+
+**Test status:** 145/145 pytest, 107 modules, 468KB bundle (vite v6). Safe to commit as **v1.1.2-shell-overlay-stability**.
+
+### v1.1.2 (part 2) — Global Command Bar Reliability
+
+Follow-up hardening of the command-bar state machine so the primary AI entrypoint is deterministic and resilient. No new features.
+
+**Root cause of the flakiness:** the command flow gated on `sessionId` in two places — the Ask `disabled` prop (fixed in v1.1.1) and, still, the `submit()` early-return (`if (!submittedText || !sessionId) return`). Because `useSession` created the session **asynchronously** (and only fell back to a local id inside the `catch` after the network attempt), there was a window — right after a refresh, and the whole time the backend was down — where `sessionId` was `null`, so `submit()` silently returned and nothing happened. Combined with query failures that produced no visible feedback, the bar felt "dead."
+
+**Fixes:**
+
+| File | Change |
+|------|--------|
+| `apps/web/src/hooks/useSession.ts` | Sets an **immediate** `local-<ts>` session id synchronously on mount (no network wait), then best-effort upgrades to a real backend session in the background. `sessionId` is therefore never `null` after first render — Ask and client-side actions work instantly after a refresh and while the backend is down. |
+| `apps/web/src/hooks/useSearchBar.ts` | `submit()` early-return relaxed to `if (!submittedText) return` — client-side intercepts (triage/evidence) no longer require a session and run fully offline. A defensive `if (!sessionId)` guard sits only in front of the backend classify/query/stream path (shows a non-blocking "Session initializing" note, never disables Ask). Query failures now surface a formatted `Error:` in the overlay (previously swallowed) and always reset `isLoading` in `finally`. Concise `[command] submit start / blocked / result set` diagnostics. |
+| `apps/web/src/components/SearchBar/SearchBar.tsx` | Ask now uses a single derived `canSubmit = text.trim().length > 0 && !isRunning` (`isRunning = isLoading || isActionRunning`). It depends only on visible text + running state — never sessionId, autocomplete health, past errors, overlay state, or stale classification. |
+| `apps/web/src/utils/commandRunner.ts` | `submitCommand` trims and no-ops on empty prompt, dispatches the explicit prompt (never depends on React state landing first), and logs `[command] submit start / complete / failed / blocked`. Added `alerts_triage` to `CommandSource`. |
+| `apps/web/src/pages/AlertsPage.tsx` | Triage buttons submit via `submitCommand(prompt, { source: 'alerts_triage' })` — direct-submit, no second Ask click. |
+
+**Reliability contract (v1.1.2 final):**
+- **Ask enabled** ⇔ non-empty trimmed text AND no command running. Nothing else can disable it.
+- **submitCommand is authoritative**: one entry, explicit prompt, clears stale errors, sets/*resets* running, routes intercept-first then backend, opens the overlay.
+- **Backend outage**: `/session` and `/autocomplete` failures are non-blocking; `/action` and `/query` failures show a formatted error and reset running; the next command works; client-side mock triage/evidence keep working offline; a real session is minted automatically when the API returns.
+- **Overlay** (from v1.1.2 part 1): opens on result/preview/action output; closes only on ✕, Escape, genuine outside-click (after a 300 ms open-grace window), Dismiss, or intentional navigation. Grace window + `[data-command-bar]`/`[data-command-overlay]`/`[data-overlay-ignore]` safe zones prevent the open-then-immediately-close race.
+- **No** raw JSON output (isRawJson guard + panel routing), **no** getSnapshot warning / update-depth loop (stable `alerts` selector + `useMemo`), **no** RealSIEMProvider calls in mock mode (backend unchanged, 145/145 green).
+
+**Known limitations:**
+- During the sub-second window before the background `/session` upgrade lands, a live backend may receive a `local-<ts>` id on the very first command; classify falls back to query mode if the backend rejects it, and the id is replaced moments later. No user-visible impact in mock mode.
+- The 300 ms overlay open-grace window still applies (an intentional dismiss-click within 300 ms of opening is ignored).
+
+**Test status:** 145/145 pytest, 107 modules, 468KB bundle (vite v6). Safe to accept as **v1.1.2-global-command-bar-reliability**.
+
+---
+
+## v1.1.3 — In-Page Alert Triage Workspace, Alert Lifecycle Actions, and Scratch Context UX
+
+**Date:** 2026-07-07  
+**Status:** Complete — 113 modules, zero TS errors, 145/145 pytest passing.
+
+Makes alert triage a first-class **in-page** SOC workflow (distinct from the global command overlay), adds a full alert lifecycle with an auditable trail, an alert detail panel, investigation-guidance next actions, case-aware linking, and a clearer Scratch (no active case) mode.
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/components/alerts/AlertTriageWorkspace.tsx` | In-page triage workspace. Per-alert decision rows (disposition, confidence, current→recommended status, reason, evidence used, recommended action, recommended next actions), stageable manual decisions (Keep Open / Investigating / False Positive / Close / Suppress), case-linking control, a live "Will apply: …" preview, an **Apply Triage Decisions** action, and an after-apply confirmation summary ("No alerts were removed from the system"). |
+| `apps/web/src/components/alerts/AlertDetailPanel.tsx` | Full alert detail: all fields, related entities, linked investigation, triage rationale (when triaged), audit trail, and manual lifecycle + link/save actions. |
+| `apps/web/src/components/alerts/AlertStatusActions.tsx` | Reusable manual lifecycle buttons (Investigating / False Positive / Close / Suppress / optional Keep Open). Every action is an explicit analyst decision — nothing auto-closes/suppresses. |
+| `apps/web/src/components/alerts/AlertAuditTrail.tsx` | Read-only append-only lifecycle history (timestamp · prev→new · reason · actor). |
+| `apps/web/src/components/alerts/alertStyles.ts` | Shared severity/status style + label maps and `RESOLVED_STATUSES`. |
+| `apps/web/src/components/common/ActiveCaseSelector.tsx` | Reusable case destination picker with an explicit "No case (scratch)" option. |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/types/alerts.ts` | Added `AlertAuditEvent` and `MockAlert.auditTrail?`; added `entityType` + `recommendedNextActions` to `EnrichedTriageVerdict`. |
+| `apps/web/src/stores/alertStore.ts` | `applyStatusChange(ids, status, reason?)` now appends an audit event per alert and no longer clears selection; new `linkAlertsToCase(ids, caseId, caseTitle)` (audit event, no status change) and `getAlertById(id)`. |
+| `apps/web/src/utils/alertTriageEngine.ts` | Verdicts now carry `entityType` and `recommendedNextActions` — disposition-specific investigation guidance (TP: timeline/blast-radius/link-to-case/assign; Uncertain: enrichment/baseline/similar; FP: mark-FP/suppress/tune/note, never auto-close). |
+| `apps/web/src/pages/AlertsPage.tsx` | Triage buttons now compute triage **locally** (`triageAlerts(getTriageAlerts(scope), scope)`) into page-local state and render `AlertTriageWorkspace` in-page — they no longer go through `submitCommand`/the global overlay. Rows are clickable → `AlertDetailPanel`. |
+| `apps/web/src/components/AppShell/Sidebar.tsx` | Scratch card now reads "No Active Case · Scratch Mode" with a one-line explanation that new activity won't attach to a case and save/pin/link will ask for a destination. |
+| `apps/web/src/App.tsx` | Version label → **v1.1.3**. |
+
+### How it works
+
+- **In-page vs global separation** — Alerts-page buttons (Triage selected/visible/all-open) run the deterministic engine locally and render the workspace inside the Alerts page. Typing "Triage my open alerts" in the **global command bar** still routes through the `useSearchBar` intercept → command overlay (`TriageResultPanel`), unchanged. Two clearly separate surfaces.
+- **Decision visibility before apply** — each row shows alert ID, name, entity, severity, AI disposition, confidence, current→recommended status, reason, evidence used, recommended action, and recommended next actions. The analyst can override any decision; a live preview shows exactly how many will move to each status and how many will link to the case.
+- **Apply feedback** — Apply groups decisions by target status, calls `applyStatusChange(..., 'triage decision')`, optionally links TP alerts to the chosen case, and shows a confirmation summary. Resolved alerts (Closed / False Positive / Suppressed) drop out of the Open tab automatically (status filter) but remain under All and their status filter — nothing is deleted.
+- **Per-alert manual actions & detail** — every triage row and the detail panel expose manual lifecycle actions plus Open Alert / Link to case / Save as Finding (case-gated). AI never auto-closes/suppresses.
+- **Audit trail** — status changes and case links append `AlertAuditEvent`s (timestamp, prev→new, actor `analyst_1`, reason), shown in the detail panel.
+- **Scratch mode & case-aware linking** — active-case card clearly shows Scratch/No-active-case; triage linking uses the active case when present or prompts "No active case — create or select a case"; the `ActiveCaseSelector` lets the analyst pick any destination or scratch. No auto-save; investigation data is never erased.
+- **Triage guides investigation, not remediation** — the workspace states plainly that marking an alert Investigating routes it for analysis and does **not** remediate/clear the account or system; only Close / False Positive / Suppress resolve an alert.
+- **Count consistency** — all counts (sidebar badge, Alerts header, status tabs, Overview cards) derive from `alertStore` and update reactively after lifecycle actions.
+
+### Preserved (no regressions)
+
+- Global command overlay, QueryPreviewCard, AI summaries, evidence summary, and command-bar reliability (v1.1.2) unchanged.
+- No layout shift; stable Zustand selectors (no getSnapshot loop); no raw JSON; backend untouched (145/145).
+
+### Known limitations
+
+- The in-page workspace lists the top 25 verdicts by risk with a show-all toggle (large all-open triage stays readable).
+- "Save as Finding" targets the **active** case; linking to a non-active case sets the alert's `linkedInvestigationId` but does not switch the active investigation.
+- Alert state (statuses, audit trail) is in-memory in `alertStore` and resets on refresh — persistence is a Phase 3 item.
+
+**Test status:** 145/145 pytest, 113 modules, 492KB bundle (vite v6). Safe to commit as **v1.1.3-alert-triage-workspace**.
+
+---
+
+## v1.1.4 — Alert Detail Triage Actions, Decision Reversal, and Case Routing Polish
+
+**Date:** 2026-07-08  
+**Status:** Complete — 116 modules, zero TS errors, 145/145 pytest passing.
+
+Rounds out the SOC triage loop: **single alert → detail-panel actions**, **multiple alerts → batch workspace**, **global command → overlay summary**. Adds direct single-alert triage (no checkbox), alert-type-specific next actions, prominent case routing, state-aware lifecycle actions with Reopen/Undo, and cleaner "no pending change" apply behavior.
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/utils/alertNextActions.ts` | `getAlertNextActions(alert)` — concrete, alert-type-specific investigation steps keyed on detection rule / entity (Impossible Travel, Credential Dump, Encoded PowerShell, OAuth Consent, lateral movement, C2, priv-esc, geo, MFA spray, new account, password reset, port, suspicious sign-in, + default). Advisory only. |
+| `apps/web/src/components/alerts/AlertTriageRecommendation.tsx` | Reusable single-alert recommendation block — disposition badge, TP/FP/confidence, reason, evidence used, recommended action, recommended next actions. |
+| `apps/web/src/components/alerts/AlertCaseActions.tsx` | Prominent case routing: link to active case, link to existing case (dropdown), create new investigation from alert, keep scratch. Suggests the active case only on entity/evidence overlap. Never auto-links. |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/components/alerts/AlertDetailPanel.tsx` | Now a full single-alert triage surface (no checkbox needed): computes a triage verdict on the fly when none passed in (`triageAlerts([alert], 'selected')`), renders `AlertTriageRecommendation` with `getAlertNextActions`, `AlertCaseActions`, state-aware `AlertStatusActions` (immediate), an **Undo last action** button, per-status lifecycle feedback messages, and the audit trail. |
+| `apps/web/src/components/alerts/AlertStatusActions.tsx` | Added `variant='immediate'` — state-aware transitions per current status (Open / Investigating / Acknowledged / Closed / False Positive / Suppressed / Escalated) incl. Reopen, Acknowledge, Unsuppress. `variant='stage'` (batch decision staging) unchanged. |
+| `apps/web/src/stores/alertStore.ts` | Added `undoLastAction(id)` — reverts to the previous status from the latest status-change audit event and appends an "undo last action" event (append-only, nothing deleted). Reopen is `applyStatusChange(id, 'open', 'manual reopen')`. |
+| `apps/web/src/components/alerts/AlertTriageWorkspace.tsx` | Apply button disabled when there are no staged changes ("No pending triage changes."); rows already in a resolved status show "already {Status}, no change recommended"; no more all-zeros applied summary. |
+| `apps/web/src/App.tsx` | Version label → **v1.1.4**. |
+
+### How it works
+
+- **Single-alert triage** — clicking any alert row opens `AlertDetailPanel`, which shows the full AI triage recommendation for that one alert (computed on the fly) plus case routing and lifecycle actions. No checkbox / batch workspace needed for single alerts.
+- **Recommended next actions** — `getAlertNextActions` returns concrete, rule-specific steps (e.g. Impossible Travel → run failed sign-ins, review MFA/CA, build timeline, map blast radius, save finding).
+- **Case actions** — link to active case, link to an existing case via dropdown, create a new investigation from the alert (auto-titled + linked), or keep scratch; active case is only *suggested* on entity/evidence overlap; scratch shows "No active case — create or select a case."
+- **State-aware actions** — the detail panel shows only sensible transitions for the current status; resolved alerts expose Reopen (and Unsuppress for suppressed).
+- **Reopen / Undo** — Reopen returns an alert to Open with a "manual reopen" audit event; Undo reverts the last status change (audit-driven) and records the reversal.
+- **No-change apply** — the batch Apply button disables with "No pending triage changes." when nothing is staged, so the analyst never sees a confusing all-zeros summary; resolved rows read "already {Status}, no change recommended."
+- **Lifecycle feedback** — status changes surface an inline confirmation, e.g. "Alert ALT-013 marked Investigating. This routes it for analysis; it does not remediate the host/account." / "…closed. It remains available under All and Closed." / "…marked False Positive. Consider tuning the detection if repeated."
+- **Counts & filters** — all counts (sidebar badge, header, tabs, Overview) derive from `alertStore`; resolved alerts leave the Open view but remain under All and their status filter; nothing is deleted.
+
+### Preserved (no regressions)
+
+- Batch triage (Triage selected / visible / all-open) and the in-page workspace unchanged aside from the apply-button polish.
+- Global command "Triage my open alerts" → command overlay summary; command-bar + overlay reliability unchanged.
+- Evidence / investigation workflows, stable Zustand selectors (no getSnapshot loop), backend untouched (145/145).
+
+### Known limitations
+
+- Vite reports the JS bundle just over 500 KB (advisory only, not a build failure) — code-splitting is deferred.
+- "Undo last action" reverts only the most recent status-change event (single-level undo), not a full multi-step timeline rewind.
+- Alert state (statuses, audit trail, links) is in-memory in `alertStore` and resets on refresh — persistence remains a Phase 3 item.
+
+**Test status:** 145/145 pytest, 116 modules, 502KB bundle (vite v6). Safe to commit as **v1.1.4-alert-detail-triage-actions**.
+
+---
+
+## v1.1.5 — Case Workspace Memory and Scratch Mode
+
+**Date:** 2026-07-09  
+**Status:** Complete — 120 modules, zero TS errors, 145/145 pytest passing. Workflow-continuity patch (no new major phase, no DB).
+
+Makes the active-case card a real **workspace switcher**: an explicit **Scratch Mode / No Active Case** option, per-workspace memory of where the analyst left off, and the active case acting as a **context lens + default save target** rather than an auto-save destination.
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/types/workspace.ts` | `CaseWorkspaceState` (lightweight per-workspace UI memory: lastPage, lastInvestigationTab, selected entity/alert/artifact/report, logs/alerts/reports sub-state), `SCRATCH_WORKSPACE_ID`, `WORKSPACE_SCHEMA_VERSION`, `emptyWorkspace()`. UI-state only — never investigation memory. |
+| `apps/web/src/stores/workspaceStore.ts` | Zustand + `persist` (versioned key `sentinel-iq-workspace-v1`, `version` + `migrate` that drops any unknown/older blob instead of trusting it). `getWorkspace` (non-reactive), `patchWorkspace`, `setLastPage`, `setInvestigationTab`. Documented as the `LocalWorkspaceMemoryProvider` for a future v1.2 backend provider. |
+| `apps/web/src/utils/workspaceMemory.ts` | `workspaceIdFor(activeInvestigationId)` (`null` → `'scratch'`), `isScratchWorkspace()`, and the v1.2 `WorkspaceMemoryProvider` boundary/TODO. |
+| `apps/web/src/components/common/WorkspaceModeBadge.tsx` | Context indicator — "Scratch Mode" or "Case: {title}". |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/components/AppShell/Sidebar.tsx` | Case-switcher dropdown now includes an explicit **"○ Scratch Mode / No Active Case"** option (and is available even when the switcher would otherwise be empty). New `switchWorkspace(targetId)` saves the current workspace's last page, closes the command overlay (`sessionStore.clear()`), sets the active case (or Scratch), then restores the target workspace's last page (default: case → investigation-workspace, scratch → overview). The × control and the scratch-mode `<select>` route through it too. |
+| `apps/web/src/App.tsx` | Records `lastPage` per workspace on every navigation (`useWorkspaceStore.setLastPage(workspaceIdFor(activeId), page)`); version label → **v1.1.5**. |
+| `apps/web/src/pages/OverviewPage.tsx` | Adds a workspace lens row: `WorkspaceModeBadge` + a scratch/case context line ("Neutral SOC workspace — work stays scratch until you save or link it to a case." vs "Working in {case} — AI actions default to this case; saves still need explicit approval.") and an "Open case workspace →" shortcut when a case is active. |
+| `apps/web/src/pages/ReportsPage.tsx` | Report context selector reads "— No report context (choose a case) —"; when none is selected it shows an amber note that Scratch Mode does not auto-use the last case. |
+
+### How it works
+
+- **Scratch Mode** — selecting Scratch (or clearing the active case) sets `activeInvestigationId = null`. The command bar/AI already read the live active id, so nothing silently uses INV-001/jsmith; save/pin/link actions already require an explicit destination (Logs case target, `AlertCaseActions`, Reports context). Investigation data is untouched; no hard refresh.
+- **Active case as context lens** — an active case is the *default* context and suggested save target only. It never auto-saves queries, auto-links alerts, or auto-pins AI output — every write still goes through an explicit analyst action (Save to Case / Pin Finding / Link Alert / Save as Note / Save Report / Create Artifact).
+- **Per-case workspace memory** — `workspaceStore` remembers each workspace's `lastPage` (and has slots for last investigation tab, selected entity/alert/artifact/report, and logs/alerts/reports sub-state, recorded for v1.2). Switching cases restores the last page; the model is structured so v1.2 can restore the finer-grained selections.
+- **Switching cases** — `switchWorkspace` persists the outgoing workspace's page, closes any transient overlay, flips the active case, and navigates to the incoming workspace's remembered page. Command overlays deliberately close on switch (not restored).
+- **Evidence** — already case-scoped: the investigation workspace shows "No investigation selected" in Scratch, so no stale jsmith evidence appears.
+- **Reports** — context defaults to the active case, but in Scratch it starts with no context and prompts the analyst to choose one.
+- **Logs / Alerts** — unchanged working behavior: Logs scratch/case target (v1.1.2) and `AlertCaseActions` (v1.1.4) already require explicit case selection to save/link; both remain fully usable in Scratch.
+- **Soft home** — the logo `goHome` (v1.1.2) still navigates to Overview, closes overlays, clears the transient result, and preserves the active-case/Scratch selection and all stores.
+- **Stale-state safety** — the persisted workspace blob is guarded by a versioned key + `migrate` that discards unknown/older shapes; `getWorkspace` always returns a safe default; missing fields are optional.
+- **v1.2 prep** — `workspaceStore` = `LocalWorkspaceMemoryProvider`; `workspaceMemory.ts` documents the `FutureDatabaseWorkspaceMemoryProvider` surface so persistence can be swapped in without touching UI callers.
+
+### Preserved (no regressions)
+
+- Command overlay + search-bar reliability, QueryPreviewCard/QueryPlan/adapters, Evidence graph, Context Used/Execution Trace, Save/Pin, Reports detail, Handoff, noise coaching, alert triage workspace/detail/lifecycle — all unchanged. Stable Zustand selectors (workspace reads are non-reactive `getState()` in handlers/effects — no getSnapshot loop). Backend untouched (145/145).
+
+### Known limitations
+
+- Only `lastPage` is actively restored on switch today; the finer per-case selections (entity/alert/artifact/report, Logs kql/platform, Alerts filters) are modeled and can be recorded but are not yet force-restored (deferred to v1.2 to avoid fighting existing per-page stores).
+- Workspace memory persists to localStorage; investigation/alert content is still in-memory and resets on refresh.
+- Vite bundle ~504 KB (advisory only, not a failure) — code-splitting deferred.
+
+### Next recommended phase
+
+**v1.2 — Persistence / local database foundation:** back `investigationStore`, `alertStore`, and `workspaceStore` with a persistent local store (and the `FutureDatabaseWorkspaceMemoryProvider`), and restore the finer-grained per-case workspace selections.
+
+**Test status:** 145/145 pytest, 120 modules, 504KB bundle (vite v6). Safe to commit as **v1.1.5-case-workspace-memory**.
 
 ---
 
