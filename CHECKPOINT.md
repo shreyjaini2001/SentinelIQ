@@ -726,12 +726,22 @@ Rounds out the SOC triage loop: **single alert → detail-panel actions**, **mul
 
 ---
 
-## v1.1.5 — Case Workspace Memory and Scratch Mode
+## v1.1.5 — Scratch-First Landing, Case Workspace Memory, and Per-Workspace State Restore
 
-**Date:** 2026-07-09  
+**Date:** 2026-07-10  
 **Status:** Complete — 120 modules, zero TS errors, 145/145 pytest passing. Workflow-continuity patch (no new major phase, no DB).
 
-Makes the active-case card a real **workspace switcher**: an explicit **Scratch Mode / No Active Case** option, per-workspace memory of where the analyst left off, and the active case acting as a **context lens + default save target** rather than an auto-save destination.
+Two parts. **(a) Workspace switcher + memory:** the active-case card is a real workspace switcher with an explicit **Scratch Mode / No Active Case** option and per-workspace memory of where the analyst left off; the active case is a **context lens + default save target**, never an auto-save destination. **(b) Scratch-first landing + per-workspace Logs:** the app now boots into **Scratch Mode** (no case hardcoded active), and Logs editor state is snapshotted/restored per workspace.
+
+### Scratch-first landing (part b)
+
+- `investigationStore` default `activeInvestigationId` changed from `'INV-001'` → **`null`**. Fresh launch shows "No Active Case · Scratch Mode"; jsmith/LAPSUS$ fixtures still exist and are selectable. `investigationStore` is **not persisted**, so there is no stale `INV-001` to migrate — the change alone fixes the landing.
+- `App.tsx` runs a one-time launch guard: if there is no active case on load, `restoreWorkspaceLogs('scratch')` resets the Logs editor to a fresh scratch state so a previously-persisted case target / query can't leak into Scratch.
+
+### Per-workspace Logs (part b)
+
+- `utils/workspaceMemory.ts` adds `snapshotWorkspaceLogs(id)` / `restoreWorkspaceLogs(id)`. On a workspace switch, `Sidebar.switchWorkspace` snapshots the outgoing case's Logs editor (kql, platform, case target — **not** results) into its checkpoint, then restores the incoming workspace: a case restores its saved editor (or an empty editor targeting that case); **Scratch is always reset fresh** (empty kql, scratch target, results cleared). This makes Logs feel workspace-scoped without rewriting the global `logsStore`.
+- `InvestigationWorkspacePage` restores the last investigation **tab** from the case checkpoint on mount and records it on change (so re-opening jsmith returns to e.g. the Evidence tab).
 
 ### New files
 
@@ -739,15 +749,17 @@ Makes the active-case card a real **workspace switcher**: an explicit **Scratch 
 |------|---------|
 | `apps/web/src/types/workspace.ts` | `CaseWorkspaceState` (lightweight per-workspace UI memory: lastPage, lastInvestigationTab, selected entity/alert/artifact/report, logs/alerts/reports sub-state), `SCRATCH_WORKSPACE_ID`, `WORKSPACE_SCHEMA_VERSION`, `emptyWorkspace()`. UI-state only — never investigation memory. |
 | `apps/web/src/stores/workspaceStore.ts` | Zustand + `persist` (versioned key `sentinel-iq-workspace-v1`, `version` + `migrate` that drops any unknown/older blob instead of trusting it). `getWorkspace` (non-reactive), `patchWorkspace`, `setLastPage`, `setInvestigationTab`. Documented as the `LocalWorkspaceMemoryProvider` for a future v1.2 backend provider. |
-| `apps/web/src/utils/workspaceMemory.ts` | `workspaceIdFor(activeInvestigationId)` (`null` → `'scratch'`), `isScratchWorkspace()`, and the v1.2 `WorkspaceMemoryProvider` boundary/TODO. |
+| `apps/web/src/utils/workspaceMemory.ts` | `workspaceIdFor(activeInvestigationId)` (`null` → `'scratch'`), `isScratchWorkspace()`, `snapshotWorkspaceLogs`/`restoreWorkspaceLogs`, and the v1.2 provider boundaries (`LocalWorkspaceMemoryProvider`, `FutureDatabaseWorkspaceMemoryProvider`, `FutureSiemWorkspaceContextProvider`). |
 | `apps/web/src/components/common/WorkspaceModeBadge.tsx` | Context indicator — "Scratch Mode" or "Case: {title}". |
 
 ### Changed files
 
 | File | Change |
 |------|--------|
-| `apps/web/src/components/AppShell/Sidebar.tsx` | Case-switcher dropdown now includes an explicit **"○ Scratch Mode / No Active Case"** option (and is available even when the switcher would otherwise be empty). New `switchWorkspace(targetId)` saves the current workspace's last page, closes the command overlay (`sessionStore.clear()`), sets the active case (or Scratch), then restores the target workspace's last page (default: case → investigation-workspace, scratch → overview). The × control and the scratch-mode `<select>` route through it too. |
-| `apps/web/src/App.tsx` | Records `lastPage` per workspace on every navigation (`useWorkspaceStore.setLastPage(workspaceIdFor(activeId), page)`); version label → **v1.1.5**. |
+| `apps/web/src/stores/investigationStore.ts` | Default `activeInvestigationId` `'INV-001'` → **`null`** (scratch-first landing). |
+| `apps/web/src/components/AppShell/Sidebar.tsx` | Case-switcher dropdown now includes an explicit **"○ Scratch Mode / No Active Case"** option. New `switchWorkspace(targetId)` no-ops on same-workspace; otherwise saves the outgoing workspace's last page, **snapshots its Logs editor**, closes the command overlay (`sessionStore.clear()`), sets the active case (or Scratch), **restores the incoming workspace's Logs** (Scratch reset fresh), then navigates to the incoming workspace's last page (default: case → investigation-workspace, scratch → overview). The × control and the scratch-mode `<select>` route through it too. |
+| `apps/web/src/pages/InvestigationWorkspacePage.tsx` | Restores/records the active tab per case via the workspace checkpoint. |
+| `apps/web/src/App.tsx` | Records `lastPage` per workspace on navigation; one-time scratch-launch Logs reset; version label → **v1.1.5**. |
 | `apps/web/src/pages/OverviewPage.tsx` | Adds a workspace lens row: `WorkspaceModeBadge` + a scratch/case context line ("Neutral SOC workspace — work stays scratch until you save or link it to a case." vs "Working in {case} — AI actions default to this case; saves still need explicit approval.") and an "Open case workspace →" shortcut when a case is active. |
 | `apps/web/src/pages/ReportsPage.tsx` | Report context selector reads "— No report context (choose a case) —"; when none is selected it shows an amber note that Scratch Mode does not auto-use the last case. |
 
@@ -770,15 +782,16 @@ Makes the active-case card a real **workspace switcher**: an explicit **Scratch 
 
 ### Known limitations
 
-- Only `lastPage` is actively restored on switch today; the finer per-case selections (entity/alert/artifact/report, Logs kql/platform, Alerts filters) are modeled and can be recorded but are not yet force-restored (deferred to v1.2 to avoid fighting existing per-page stores).
+- Restored on switch today: `lastPage`, last **investigation tab**, and case **Logs editor** (kql/platform/target). Finer selections (selected entity/alert/artifact/report, Alerts filters) are modeled in `CaseWorkspaceState` and can be recorded but are not yet force-restored (deferred to v1.2 to avoid fighting existing per-page stores). Logs query **results** are never snapshotted (re-run cheaply).
+- Scratch is treated as ephemeral: switching into Scratch (and fresh launch) resets the Logs editor; an unsaved scratch query is not preserved across a workspace switch.
 - Workspace memory persists to localStorage; investigation/alert content is still in-memory and resets on refresh.
-- Vite bundle ~504 KB (advisory only, not a failure) — code-splitting deferred.
+- Vite bundle ~505 KB (advisory only, not a failure) — code-splitting deferred.
 
 ### Next recommended phase
 
-**v1.2 — Persistence / local database foundation:** back `investigationStore`, `alertStore`, and `workspaceStore` with a persistent local store (and the `FutureDatabaseWorkspaceMemoryProvider`), and restore the finer-grained per-case workspace selections.
+**v1.2 — Persistence / local database foundation:** back `investigationStore`, `alertStore`, and `workspaceStore` with a persistent local store (implement `FutureDatabaseWorkspaceMemoryProvider`; wire `FutureSiemWorkspaceContextProvider`), and restore the finer-grained per-case workspace selections.
 
-**Test status:** 145/145 pytest, 120 modules, 504KB bundle (vite v6). Safe to commit as **v1.1.5-case-workspace-memory**.
+**Test status:** 145/145 pytest, 120 modules, 505KB bundle (vite v6). Safe to commit as **v1.1.5-scratch-case-workspace-memory**.
 
 ---
 

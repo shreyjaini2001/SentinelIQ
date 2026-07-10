@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { useInvestigationStore } from '../stores/investigationStore'
+import { useWorkspaceStore } from '../stores/workspaceStore'
 import type { Artifact } from '../types/investigation'
+import type { InvestigationTab } from '../types/workspace'
 import { submitCommand } from '../utils/commandRunner'
 import { EvidenceGraph } from '../components/investigation/EvidenceGraph'
 import { EvidenceTimeline } from '../components/investigation/EvidenceTimeline'
@@ -398,14 +400,26 @@ interface Props {
 }
 
 export function InvestigationWorkspacePage({ onBack }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>('overview')
-  const [highlightedArtifactId, setHighlightedArtifactId] = useState<string | null>(null)
   const { investigations, activeInvestigationId } = useInvestigationStore()
+  // Restore the last investigation tab from this case's workspace checkpoint (implicit
+  // auto-checkpointing — read once on mount).
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (!activeInvestigationId) return 'overview'
+    return (useWorkspaceStore.getState().getWorkspace(activeInvestigationId).lastInvestigationTab as Tab) ?? 'overview'
+  })
+  const [highlightedArtifactId, setHighlightedArtifactId] = useState<string | null>(null)
 
   // Clear artifact highlight when leaving the Artifacts tab
   useEffect(() => {
     if (activeTab !== 'artifacts') setHighlightedArtifactId(null)
   }, [activeTab])
+
+  // Record the current tab into this case's workspace checkpoint.
+  useEffect(() => {
+    if (activeInvestigationId) {
+      useWorkspaceStore.getState().setInvestigationTab(activeInvestigationId, activeTab as InvestigationTab)
+    }
+  }, [activeTab, activeInvestigationId])
 
   const handleNavigateToArtifact = (artifactId: string) => {
     setActiveTab('artifacts')

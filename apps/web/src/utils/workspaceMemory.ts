@@ -1,4 +1,7 @@
 import { SCRATCH_WORKSPACE_ID } from '../types/workspace'
+import { useWorkspaceStore } from '../stores/workspaceStore'
+import { useLogsStore, SCRATCH_CASE_TARGET } from '../stores/logsStore'
+import type { SiemPlatform } from '../types/queryPlan'
 
 /**
  * Resolve the current workspace id from the active investigation.
@@ -12,18 +15,60 @@ export function isScratchWorkspace(id: string): boolean {
   return id === SCRATCH_WORKSPACE_ID
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Per-workspace Logs state (v1.1.5)
+//
+// logsStore is a single global store. To make Logs feel workspace-scoped without a large
+// rewrite, we snapshot the relevant Logs UI state into the outgoing workspace's checkpoint
+// and restore it (or reset to a fresh scratch state) when entering a workspace. Query
+// *results* are intentionally NOT snapshotted — they are transient/heavy and re-run cheaply.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Snapshot the current Logs editor state into a case workspace. Scratch is ephemeral — skipped. */
+export function snapshotWorkspaceLogs(workspaceId: string): void {
+  if (isScratchWorkspace(workspaceId)) return
+  const ls = useLogsStore.getState()
+  useWorkspaceStore.getState().patchWorkspace(workspaceId, {
+    logsState: {
+      kql: ls.kql,
+      selectedPlatform: ls.selectedPlatform,
+      caseTargetId: ls.caseTargetId,
+    },
+  })
+}
+
+/**
+ * Restore Logs state when entering a workspace. Scratch is always reset to a fresh, neutral
+ * editor (scratch case target). A case restores its saved editor if a checkpoint exists,
+ * otherwise defaults to an empty editor targeting the active case. Results are always cleared.
+ */
+export function restoreWorkspaceLogs(workspaceId: string): void {
+  const ls = useLogsStore.getState()
+  ls.clearResults()
+
+  if (isScratchWorkspace(workspaceId)) {
+    ls.setKql('')
+    ls.setCaseTargetId(SCRATCH_CASE_TARGET) // explicit scratch — save/pin require a case
+    return
+  }
+
+  const saved = useWorkspaceStore.getState().getWorkspace(workspaceId).logsState
+  ls.setKql(saved?.kql ?? '')
+  ls.setCaseTargetId(saved?.caseTargetId ?? null) // null → LogsPage defaults to the active case
+  if (saved?.selectedPlatform) ls.setSelectedPlatform(saved.selectedPlatform as SiemPlatform)
+}
+
 /*
- * v1.2 persistence boundary
- * -------------------------
+ * v1.2 persistence boundaries
+ * ---------------------------
  * Workspace memory currently lives in `workspaceStore` (localStorage) — the
- * `LocalWorkspaceMemoryProvider`. When v1.2 introduces a local database / backend,
- * implement a `FutureDatabaseWorkspaceMemoryProvider` with the same surface:
+ * `LocalWorkspaceMemoryProvider`. Boundaries a v1.2 phase should implement without changing
+ * UI callers (they already go through workspaceStore + these helpers):
  *
- *   interface WorkspaceMemoryProvider {
- *     getWorkspace(id: string): Promise<CaseWorkspaceState>
- *     patchWorkspace(id: string, partial: Partial<CaseWorkspaceState>): Promise<void>
- *   }
- *
- * Callers already go through workspaceStore's getWorkspace/patchWorkspace, so swapping the
- * provider should not require touching UI components.
+ *   LocalWorkspaceMemoryProvider        — current: localStorage-backed workspaceStore.
+ *   FutureDatabaseWorkspaceMemoryProvider — persist workspace checkpoints to a local DB / backend:
+ *       getWorkspace(id): Promise<CaseWorkspaceState>
+ *       patchWorkspace(id, partial): Promise<void>
+ *   FutureSiemWorkspaceContextProvider  — resolve real, case-scoped SIEM context (entities,
+ *       saved queries, evidence) for the active workspace instead of mock fixtures.
  */

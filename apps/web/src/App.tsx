@@ -15,8 +15,8 @@ import { SettingsPage } from './pages/SettingsPage'
 import { useSessionStore } from './stores/sessionStore'
 import { useInvestigationStore } from './stores/investigationStore'
 import { useWorkspaceStore } from './stores/workspaceStore'
-import { workspaceIdFor } from './utils/workspaceMemory'
-import type { WorkspacePageId } from './types/workspace'
+import { workspaceIdFor, restoreWorkspaceLogs } from './utils/workspaceMemory'
+import { SCRATCH_WORKSPACE_ID, type WorkspacePageId } from './types/workspace'
 
 export default function App() {
   // Navigation history — internal stack + browser history sync
@@ -33,6 +33,15 @@ export default function App() {
   useEffect(() => {
     useWorkspaceStore.getState().setLastPage(workspaceIdFor(activeInvestigationId), currentPage as WorkspacePageId)
   }, [currentPage, activeInvestigationId])
+
+  // Scratch-first launch: if there is no active case on load, present a fresh scratch Logs
+  // state. Prevents a previously-persisted case target / query from leaking into Scratch Mode.
+  useEffect(() => {
+    if (!useInvestigationStore.getState().activeInvestigationId) {
+      restoreWorkspaceLogs(SCRATCH_WORKSPACE_ID)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const navigate = (page: PageId) => {
     const { stack, idx } = navRef.current
