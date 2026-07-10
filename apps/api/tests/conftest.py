@@ -11,6 +11,8 @@ from httpx import AsyncClient, ASGITransport
 # Force mock mode before anything imports config or llm client
 os.environ.setdefault("MOCK_LLM", "true")
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-placeholder")
+# Keep local demo persistence in-memory during tests (never touches disk).
+os.environ.setdefault("SENTINELIQ_DB_PATH", ":memory:")
 
 from main import app  # noqa: E402 — must come after env setup
 

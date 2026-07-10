@@ -17,8 +17,14 @@ import { useInvestigationStore } from './stores/investigationStore'
 import { useWorkspaceStore } from './stores/workspaceStore'
 import { workspaceIdFor, restoreWorkspace } from './utils/workspaceMemory'
 import { SCRATCH_WORKSPACE_ID, type WorkspacePageId } from './types/workspace'
+import { usePersistenceSync } from './hooks/usePersistenceSync'
+import { APP_VERSION } from './utils/appVersion'
 
 export default function App() {
+  // Local demo persistence (v1.2.0): hydrate stores from the backend on load, then autosave
+  // debounced snapshots. Non-blocking; scratch-first landing preserved (no active case set).
+  usePersistenceSync()
+
   // Navigation history — internal stack + browser history sync
   const navRef = useRef<{ stack: PageId[]; idx: number }>({ stack: ['overview'], idx: 0 })
   const [currentPage, setCurrentPage] = useState<PageId>('overview')
@@ -127,7 +133,7 @@ export default function App() {
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v1.1.7</span>
+              <span className="text-[10px] text-gray-600 font-mono">{APP_VERSION}</span>
             </div>
           </button>
 

@@ -944,6 +944,115 @@ The only app-code touched is deployment config: a frontend API-base helper (`VIT
 
 ---
 
+## v1.2.0 — Local Persistence Layer and Demo Database Foundation
+
+**Date:** 2026-07-10  
+**Status:** Complete — 129 modules, zero TS errors, 150/150 pytest passing. Local demo persistence foundation (no real DB/SIEM/AI; mock mode preserved).
+
+Adds a backend-backed **local SQLite demo persistence layer** so investigation memory, alert lifecycle/audit trail, and workspace checkpoints survive reloads and backend restarts — with a clean boundary for a future real database and graceful browser-fallback when the backend is down. Scratch-first landing and manual-workflow guarantees are preserved.
+
+### State-ownership audit (findings)
+
+| State | Before | Now |
+|-------|--------|-----|
+| investigations (turns/artifacts/query results/notes/pinned findings/reports) | in-memory only (reset on refresh) | **persisted** |
+| alert status / audit trail / linked case | in-memory only | **persisted** |
+| workspace checkpoints (page/tab/logs/alerts/evidence/reports/hunts) | localStorage (zustand persist) | **persisted to backend too** (localStorage remains fallback) |
+| saved / recent queries, platform preference | localStorage | **persisted to backend too** |
+| command overlay / loading / chips / action output / unsaved editor text / active-case selection | transient | **intentionally NOT persisted** |
+
+### Persistence model
+
+Document-style store — one `state_documents` table keyed by `(namespace, key)` holding a JSON payload + `schema_version`, plus an `app_metadata` k/v table. Namespaces: `investigations`, `alerts`, `workspace`, `logs` (keys `memory`/`saved_queries`/`recent_queries`), `user_preferences`, `demo_metadata`. Deliberately not normalized — a local demo foundation, not the final schema.
+
+### New files — backend
+
+| File | Purpose |
+|------|---------|
+| `apps/api/src/storage/local_store.py` | Stdlib `sqlite3` document store: lazy self-init (works without ASGI lifespan), single lock-guarded connection, `put/get_document`, `get_all_documents`, `clear_all`, `set/get_metadata`, `stats`. Schema version 1. |
+| `apps/api/src/routers/persistence.py` | Routes: `GET /persistence/health`, `GET/PUT /persistence/state`, `POST /persistence/reset`, and optional `GET/PUT /persistence/document/{namespace}/{key}`. Field→(namespace,key) map; partial saves upsert only provided sections. |
+| `apps/api/tests/test_persistence.py` | 5 tests: health, state round-trip, partial-save preservation, reset-clears, document endpoints. |
+
+### New files — frontend
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/types/persistence.ts` | `PersistedSentinelIQState`, `PersistenceStateResponse`, `PersistenceHealth`, status enums, `PERSISTENCE_SCHEMA_VERSION = 1`. |
+| `apps/web/src/utils/persistenceClient.ts` | Best-effort fetch client (4s timeout): `fetchPersistedState`, `savePersistedState`, `resetPersistedState`, `fetchPersistenceHealth`. Uses `API_BASE`. |
+| `apps/web/src/utils/persistenceSnapshot.ts` | `buildSnapshot`, `snapshotSignature` (excludes `generatedAt` → skips no-op saves), `applySnapshot` (validated/defaulted, never throws, never sets active case), `resetDemoData`. |
+| `apps/web/src/stores/persistenceStore.ts` | Non-persisted status store (backend/storageMode/lastSavedAt/saving/error/hydrated). |
+| `apps/web/src/hooks/usePersistenceSync.ts` | Hydrate-on-load + debounced (1.2s) autosave; subscribes to the 4 domain stores; guarded so hydration doesn't trigger saves; non-blocking. |
+| `apps/web/src/components/settings/PersistenceStatusCard.tsx` | Storage mode / backend / last-saved / mock-mode rows + two-step inline "Reset demo data". |
+| `apps/web/src/utils/appVersion.ts` | Single source of truth `APP_VERSION = 'v1.2.0'`. |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/api/config.py` | Added `sentineliq_db_path` (env `SENTINELIQ_DB_PATH`, default `apps/api/data/sentineliq_demo.db`). |
+| `apps/api/main.py` | Registered persistence router; `local_store.init_local_store()` in lifespan. |
+| `apps/api/tests/conftest.py` | `SENTINELIQ_DB_PATH=:memory:` for tests (never touches disk). |
+| `apps/web/src/stores/investigationStore.ts` | `hydrateInvestigations`, `resetToSeed` (+ exported `INVESTIGATION_SEED`). |
+| `apps/web/src/stores/alertStore.ts` | `hydrateAlerts`, `resetAlerts`. |
+| `apps/web/src/stores/workspaceStore.ts` | `hydrateWorkspaces`, `resetWorkspaces`. |
+| `apps/web/src/stores/logsStore.ts` | `hydrateLogsMemory`, `resetLogsMemory` (saved/recent/platform only; editor text/results never persisted). |
+| `apps/web/src/App.tsx` | `usePersistenceSync()`; version label from `APP_VERSION`. |
+| `apps/web/src/pages/SettingsPage.tsx` | Mounts `PersistenceStatusCard`; version rows updated. |
+| `.gitignore` | Already covered `*.db` / `apps/api/data/*.db` (verified). |
+| `.env.example`, `apps/api/.env.example` | Added `SENTINELIQ_DB_PATH`. |
+| `README.md`, `DEPLOYMENT.md`, `SECURITY.md` | Local-persistence sections, ephemeral-host note, unauth demo-only warning, 150 tests. |
+
+### Backend endpoints
+
+- `GET /api/v1/persistence/health` — status, storage mode, db path, schema version, doc count, last saved, mock mode.
+- `GET /api/v1/persistence/state` — assembled snapshot for hydration (`hasPersistedState` + null sections when empty).
+- `PUT /api/v1/persistence/state` — upserts each provided section (partial-safe).
+- `POST /api/v1/persistence/reset` — clears all documents + metadata.
+- `GET/PUT /api/v1/persistence/document/{namespace}/{key}` — optional per-document access.
+
+### Hydration flow
+
+On mount `usePersistenceSync` sets backend `connecting`, `GET /state`; if `hasPersistedState`, `applySnapshot` hydrates investigations, alert data, workspace checkpoints, and logs saved/recent/platform (each validated; missing/malformed skipped → mock seed kept). The **active case is never set** (scratch-first). On failure → `disconnected` + `browser-fallback` (localStorage-backed workspace/logs still hydrate; investigations/alerts stay on mock seed). Either way `hydrated` flips true so autosave can begin.
+
+### Autosave / debounce flow
+
+After hydration, subscriptions on `investigationStore`/`alertStore`/`workspaceStore`/`logsStore` schedule a 1.2s-debounced save. `buildSnapshot` + `snapshotSignature` (excludes `generatedAt`) skips writes when nothing persist-worthy changed — so typing in the Logs editor (kql not in the snapshot) does not save. Saves are non-blocking; failure → `disconnected` status + non-blocking warning, signature left unchanged so the next change retries.
+
+### What is / isn't persisted
+
+- **Persisted:** investigations (turns, artifacts, query & query_result artifacts, notes, pinned findings, reports, entities, reviewed nodes), alert status/audit trail/linked case, workspace checkpoints, saved/recent queries, platform preference.
+- **NOT persisted:** command overlay open state, autocomplete, loading/running state, transient errors, unsaved AI output panels, unsaved query preview, in-flight request state, hover/focus, and the **active-case selection**.
+
+### Scratch-first & manual-workflow preserved
+
+App still launches in Scratch Mode — persistence restores *data*, never auto-selects a case. Selecting a case restores its workspace checkpoint (v1.1.6). No auto-save-to-case: every write to investigation memory still goes through an explicit analyst action. Evidence re-derives from persisted artifacts; timeline includes persisted items.
+
+### Reset demo data
+
+Settings → *Local Persistence (Demo)* → two-step inline confirm → `resetDemoData`: `POST /reset` (best-effort) then reseed every store to its mock default and clear the active case → back to Scratch Mode, with a confirmation line. Works even if the backend is down (local reseed still happens).
+
+### Backend-unavailable fallback
+
+App loads fully on mock seed + browser-local state; command bar and client-side mock actions keep working; Ask never permanently disables; a non-blocking "backend unavailable / using local state" status shows. When the backend returns, the next state change saves again; initial hydration wins once (no blind clobber of newer in-memory edits mid-session).
+
+### Preserved (no regressions)
+
+- v1.1 alert operations/triage/lifecycle, v1.1.6 workspace memory, command overlay reliability, v1.0 orchestration panels, v0.9 QueryPlan/adapters, v0.8 Evidence, v0.7 Logs — all unchanged. No new packages (stdlib `sqlite3`). Backend 150/150 (145 prior + 5 new).
+
+### Known limitations
+
+- Single-file document store, not normalized; no auth/RBAC (local demo only). Hosted demos on ephemeral filesystems reset on restart unless a persistent volume is attached.
+- Whole-array persistence for investigations/alerts (debounced) rather than per-entity deltas — fine for demo scale.
+- Conflict handling is last-writer-wins after a single initial hydrate; no multi-tab merge.
+
+### Next recommended phase
+
+**v1.3 — durable/real database + auth foundation:** implement `FutureDatabaseWorkspaceMemoryProvider` against a real DB, add per-user isolation/auth, then begin the real SIEM connector + local/hybrid AI provider abstractions.
+
+**Test status:** 150/150 pytest, 129 modules, 515KB bundle (vite v6). Safe to commit as **v1.2.0-local-persistence-foundation**.
+
+---
+
 ### v0.9.1 — QueryPlan Explainability, Adapter Validation, and QueryPlan-Native Mock Execution
 
 **What changed:**

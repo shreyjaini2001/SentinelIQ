@@ -205,7 +205,14 @@ interface InvestigationState {
   addPinnedFinding: (finding: string) => void
   removePinnedFindingFrom: (invId: string, finding: string) => void
   toggleReviewedEntity: (invId: string, nodeId: string) => void
+  // Persistence (v1.2.0) — hydrate from the local store; reset to the mock seed. Neither
+  // changes the active case, so scratch-first landing is preserved.
+  hydrateInvestigations: (investigations: Investigation[]) => void
+  resetToSeed: () => void
 }
+
+/** Default mock seed — exported so "Reset demo data" can restore the original fixtures. */
+export const INVESTIGATION_SEED: Investigation[] = FIXTURE
 
 export const useInvestigationStore = create<InvestigationState>((set, get) => ({
   investigations: FIXTURE,
@@ -347,4 +354,12 @@ export const useInvestigationStore = create<InvestigationState>((set, get) => ({
       }),
     }))
   },
+
+  hydrateInvestigations: (investigations) => {
+    if (Array.isArray(investigations) && investigations.length > 0) {
+      set({ investigations })
+    }
+  },
+
+  resetToSeed: () => set({ investigations: INVESTIGATION_SEED, activeInvestigationId: null }),
 }))

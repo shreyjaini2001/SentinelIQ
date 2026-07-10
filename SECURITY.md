@@ -22,6 +22,14 @@ SentinelIQ is a **mock-first prototype** for portfolio / demo use. It is **not**
   - **Least-context**: assemble the minimum investigation context required per task, not the whole case.
   - **Explicit consent**: `allow_full_context` is opt-in and reserved for future real-API mode.
 
+## Local demo persistence (v1.2.0)
+
+- SentinelIQ persists investigation memory, alert lifecycle, and workspace checkpoints to a local **SQLite** file (`SENTINELIQ_DB_PATH`, default `apps/api/data/sentineliq_demo.db`).
+- The DB file is **gitignored** (`*.db` / `apps/api/data/*.db`) — never commit it.
+- The persistence API (`/api/v1/persistence/*`) is **unauthenticated** and intended for **local demo only**. It is **not** production-secure: no auth, no RBAC, no per-user isolation, no encryption at rest.
+- Do **not** deploy it with real data or on an untrusted network. A production deployment must add authentication/RBAC and a real database (the documented `FutureDatabaseWorkspaceMemoryProvider` boundary).
+- "Reset demo data" (Settings) clears the local store and reseeds mock defaults.
+
 ## SIEM connectors
 
 - No real SIEM connector is implemented. `RealSIEMProvider` raises `NotImplementedError` — real Sentinel / Splunk / Elastic execution is future work and must add its own credential handling and least-privilege access.
