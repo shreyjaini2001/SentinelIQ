@@ -33,12 +33,28 @@ export interface CaseWorkspaceAlertsState {
   statusFilter?: string
   severityFilter?: string
   selectedAlertIds?: string[]
+  /** How many rows were loaded (Load More count). */
+  visibleCount?: number
+  /** The alert whose detail panel was open (null/absent = closed). */
+  detailAlertId?: string | null
   lastTriageScope?: string
 }
 
 export interface CaseWorkspaceReportsState {
-  selectedReportId?: string
+  selectedReportId?: string | null
   reportContextId?: string | null
+}
+
+/** Evidence graph selection within a case (page-local, restored on re-entry). */
+export interface CaseWorkspaceEvidenceState {
+  selectedEntityNodeId?: string | null
+  expandedRelId?: string | null
+}
+
+/** Hunts page selection — lightweight template/prompt + recent-hunt selection only. */
+export interface CaseWorkspaceHuntsState {
+  selectedHuntPrompt?: string | null
+  selectedHuntId?: string | null
 }
 
 export interface CaseWorkspaceState {
@@ -53,6 +69,8 @@ export interface CaseWorkspaceState {
   logsState?: CaseWorkspaceLogsState
   alertsState?: CaseWorkspaceAlertsState
   reportsState?: CaseWorkspaceReportsState
+  evidenceState?: CaseWorkspaceEvidenceState
+  huntsState?: CaseWorkspaceHuntsState
   updatedAt: string
 }
 

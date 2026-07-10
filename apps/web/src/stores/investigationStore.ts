@@ -209,7 +209,11 @@ interface InvestigationState {
 
 export const useInvestigationStore = create<InvestigationState>((set, get) => ({
   investigations: FIXTURE,
-  activeInvestigationId: 'INV-001',
+  // Scratch-first landing (v1.1.5): the app starts with NO active case. The jsmith and
+  // LAPSUS$ fixtures still exist and are selectable — a case only becomes active when the
+  // analyst picks it from the workspace switcher. investigationStore is not persisted, so
+  // there is no stale INV-001 to migrate.
+  activeInvestigationId: null,
 
   createInvestigation: (title, severity) => {
     const id = `INV-${Date.now()}`

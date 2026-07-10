@@ -15,8 +15,8 @@ import { SettingsPage } from './pages/SettingsPage'
 import { useSessionStore } from './stores/sessionStore'
 import { useInvestigationStore } from './stores/investigationStore'
 import { useWorkspaceStore } from './stores/workspaceStore'
-import { workspaceIdFor } from './utils/workspaceMemory'
-import type { WorkspacePageId } from './types/workspace'
+import { workspaceIdFor, restoreWorkspace } from './utils/workspaceMemory'
+import { SCRATCH_WORKSPACE_ID, type WorkspacePageId } from './types/workspace'
 
 export default function App() {
   // Navigation history — internal stack + browser history sync
@@ -33,6 +33,16 @@ export default function App() {
   useEffect(() => {
     useWorkspaceStore.getState().setLastPage(workspaceIdFor(activeInvestigationId), currentPage as WorkspacePageId)
   }, [currentPage, activeInvestigationId])
+
+  // Scratch-first launch: if there is no active case on load, present a fresh scratch
+  // workspace (Logs editor + Alerts filters reset). Prevents previously-persisted case
+  // state from leaking into Scratch Mode.
+  useEffect(() => {
+    if (!useInvestigationStore.getState().activeInvestigationId) {
+      restoreWorkspace(SCRATCH_WORKSPACE_ID)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const navigate = (page: PageId) => {
     const { stack, idx } = navRef.current
@@ -117,7 +127,7 @@ export default function App() {
             </div>
             <div className="hidden lg:flex items-baseline gap-1.5">
               <span className="text-sm font-semibold text-white tracking-tight">SentinelIQ</span>
-              <span className="text-[10px] text-gray-600 font-mono">v1.1.5</span>
+              <span className="text-[10px] text-gray-600 font-mono">v1.1.6</span>
             </div>
           </button>
 

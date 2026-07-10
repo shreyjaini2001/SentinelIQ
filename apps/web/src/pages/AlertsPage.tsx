@@ -1,6 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { useAlertStore } from '../stores/alertStore'
+import { useInvestigationStore } from '../stores/investigationStore'
+import { useWorkspaceStore } from '../stores/workspaceStore'
+import { workspaceIdFor, isScratchWorkspace } from '../utils/workspaceMemory'
+import { isValidAlertId } from '../utils/workspaceRestoreGuards'
 import { triageAlerts } from '../utils/alertTriageEngine'
 import { AlertTriageWorkspace } from '../components/alerts/AlertTriageWorkspace'
 import { AlertDetailPanel } from '../components/alerts/AlertDetailPanel'
@@ -127,7 +131,23 @@ export function AlertsPage() {
   // Page-local triage + detail state — triage from the Alerts buttons renders IN the page,
   // NOT in the global command overlay (that path is reserved for global command-bar prompts).
   const [triageResult, setTriageResult] = useState<ClientTriageResult | null>(null)
-  const [detailAlertId, setDetailAlertId] = useState<string | null>(null)
+
+  // The open detail panel is remembered per case workspace. On mount we restore the last
+  // opened alert (validated — a removed alert is ignored) unless we're in Scratch, which
+  // always starts fresh with no case-selected detail.
+  const activeInvestigationId = useInvestigationStore((s) => s.activeInvestigationId)
+  const workspaceId = workspaceIdFor(activeInvestigationId)
+  const [detailAlertId, setDetailAlertId] = useState<string | null>(() => {
+    if (isScratchWorkspace(workspaceId)) return null
+    const saved = useWorkspaceStore.getState().getWorkspace(workspaceId).alertsState?.detailAlertId
+    return isValidAlertId(saved) ? saved : null
+  })
+
+  // Record the open detail panel into this case's workspace checkpoint (never for Scratch).
+  useEffect(() => {
+    if (isScratchWorkspace(workspaceId)) return
+    useWorkspaceStore.getState().patchAlertsState(workspaceId, { detailAlertId })
+  }, [detailAlertId, workspaceId])
 
   const s = stats()
   const visible = visibleAlerts()

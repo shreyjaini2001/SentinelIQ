@@ -1,5 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useInvestigationStore } from '../stores/investigationStore'
+import { useWorkspaceStore } from '../stores/workspaceStore'
+import { workspaceIdFor, isScratchWorkspace } from '../utils/workspaceMemory'
+import { isValidInvestigationId } from '../utils/workspaceRestoreGuards'
 import { ModelModeBadge } from '../components/ai/ModelModeBadge'
 import { ReportDetailPanel } from '../components/reports/ReportDetailPanel'
 import { buildContextBundle } from '../utils/contextBuilder'
@@ -49,8 +52,28 @@ const VARIANT_STYLE: Record<string, { color: string; label: string }> = {
 
 export function ReportsPage() {
   const { investigations, activeInvestigationId } = useInvestigationStore()
-  const [reportCaseId, setReportCaseId] = useState<string | null>(activeInvestigationId)
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
+  const workspaceId = workspaceIdFor(activeInvestigationId)
+
+  // Restore report context + selected report from this workspace's checkpoint. Scratch starts
+  // with no context (does not auto-use the last case); a saved context is validated, and if
+  // it was never set we default to the active case.
+  const [reportCaseId, setReportCaseId] = useState<string | null>(() => {
+    if (isScratchWorkspace(workspaceId)) return null
+    const saved = useWorkspaceStore.getState().getWorkspace(workspaceId).reportsState?.reportContextId
+    if (saved === undefined) return activeInvestigationId
+    return isValidInvestigationId(saved) ? saved : null
+  })
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(() => {
+    if (isScratchWorkspace(workspaceId)) return null
+    const saved = useWorkspaceStore.getState().getWorkspace(workspaceId).reportsState?.selectedReportId
+    return FIXTURE_REPORTS.some((r) => r.id === saved) ? (saved as string) : null
+  })
+
+  // Record report context + open report into this workspace's checkpoint (never for Scratch).
+  useEffect(() => {
+    if (isScratchWorkspace(workspaceId)) return
+    useWorkspaceStore.getState().patchReportsState(workspaceId, { reportContextId: reportCaseId, selectedReportId })
+  }, [workspaceId, reportCaseId, selectedReportId])
 
   const reportInv = investigations.find((i) => i.id === reportCaseId) ?? null
   const selectedReport = FIXTURE_REPORTS.find((r) => r.id === selectedReportId) ?? null
