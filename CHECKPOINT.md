@@ -944,6 +944,39 @@ The only app-code touched is deployment config: a frontend API-base helper (`VIT
 
 ---
 
+## v1.3.2 — Data Sources Preview Visibility and UX Fix
+
+**Date:** 2026-07-11  
+**Status:** Complete — zero TS errors, 161/161 pytest passing. Fixes preview **visibility** (v1.3.1 fetched + set state correctly, but the panel rendered below the fold).
+
+### Root cause
+
+Not backend, not state — **placement**. In v1.3.1 the preview panel rendered *after the entire connectors list* (`{previewConnector && …}` below the `.map`). Since the Mock SOC Dataset is the **first** of 7 cards (mock + 6 placeholders), its preview appeared far below all 6 placeholder cards — off-screen. `previewEvents` was set and passed to `NormalizedEventPreview` correctly; the table simply rendered below the fold.
+
+### Fix (Option A — inline preview under the selected card)
+
+`apps/web/src/pages/DataSourcesPage.tsx`: moved the loading / error / results region **inside** the `connectors.map`, rendered immediately beneath the card whose id matches `previewConnectorId` (slightly indented). Clicking "Preview events" on the Mock card now shows the panel directly under it — visible without scrolling. Removed the now-unused bottom preview block and the `previewConnector` lookup. Loading state gained a small spinner. No `scrollIntoView` needed (bounded, inline placement preferred).
+
+| File | Change |
+|------|--------|
+| `apps/web/src/pages/DataSourcesPage.tsx` | Preview region rendered inline under the active connector card (loading spinner / error+Retry+Dismiss / `NormalizedEventPreview`). |
+| `apps/web/src/utils/appVersion.ts` | `APP_VERSION` → **v1.3.2**. |
+
+### Behavior after fix
+
+- Click "Preview events" on Mock SOC Dataset → inline loading spinner directly under the card → normalized event table (connector name, event count, rows; missing values `—`) appears in place, above the fold.
+- Re-clicking refreshes stably; error/empty shows inline with **Retry** + **Dismiss**; placeholders stay disabled.
+- **No regression** to Test connection, Run mock sync, ingestion-run list/persistence, or the connector cards.
+
+### Known limitations
+
+- Chose inline (Option A) over a two-column master/detail (Option B) for a bounded, low-risk change.
+- Vite bundle ~532 KB (advisory only, not a failure).
+
+**Test status:** 161/161 pytest, zero TS errors, 532KB bundle (vite v6). Safe to commit as **v1.3.2-data-sources-preview-visibility-fix**.
+
+---
+
 ## v1.3.1 — Data Sources Preview Events Fix and Connector UX Stabilization
 
 **Date:** 2026-07-11  
