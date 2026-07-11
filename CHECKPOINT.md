@@ -944,6 +944,70 @@ The only app-code touched is deployment config: a frontend API-base helper (`VIT
 
 ---
 
+## v1.3.0 — Connector and Normalized Ingestion Foundation
+
+**Date:** 2026-07-10  
+**Status:** Complete — 136 modules, zero TS errors, 157/157 pytest passing. Defines the ingestion boundary (no real SIEM/EDR APIs, no credentials, mock mode preserved).
+
+Adds the clean boundary for how future security data enters SentinelIQ: a **vendor-neutral normalized event model**, a **connector interface**, a fully-implemented **mock connector**, safe **real-platform placeholders**, **ingestion-run** tracking (persisted), and a rebuilt **Data Sources** page.
+
+**Ingestion path:** connector source → raw records → `NormalizedSecurityEvent` → alerts / query rows / evidence → investigation memory.
+
+### New files — frontend
+
+| File | Purpose |
+|------|---------|
+| `apps/web/src/types/events.ts` | `NormalizedSecurityEvent` — vendor-neutral model (id, timestamp, sourcePlatform/Product/Type/TableOrIndex, eventCategory, severity, user/host/ip/process/commandLine/country, eventId, ruleName, tactic, technique, raw, normalizedFields, linkedAlertIds, linkedInvestigationIds). |
+| `apps/web/src/types/connectors.ts` | `SecurityDataConnector` interface, `ConnectorMetadata`, `ConnectorStatus`/`ConnectorMode`/`ConnectorCapability`, `TestConnectionResult`, `IngestionRun`. |
+| `apps/web/src/utils/normalization.ts` | `alertToNormalizedEvent`, `normalizedEventToAlert`, `normalizedEventToQueryRow`, `normalizedEventToEvidenceEntity` — mapping layer (existing stores untouched; shows the future ingestion path). |
+| `apps/web/src/utils/connectors/mockSocConnector.ts` | `MockSocConnector` — reads the deterministic mock SOC dataset (`ALL_ALERTS` + sample events across categories) and produces normalized events. Implements listSources/testConnection/fetchSampleEvents/fetchAlerts/runQuery/normalize/getLastSync. |
+| `apps/web/src/utils/connectors/connectorRegistry.ts` | Registry: mock connector + safe placeholders (Sentinel, Splunk, Elastic, Defender, CrowdStrike, Okta) that report `not_configured`, refuse to sync, and never call a network. |
+| `apps/web/src/stores/connectorStore.ts` | Runtime state: test results, event preview, ingestion-run history; hydrates runs from backend, persists on sync, graceful in-memory fallback. |
+| `apps/web/src/components/datasources/ConnectorCard.tsx` · `IngestionRunList.tsx` · `NormalizedEventPreview.tsx` | Data Sources UI. |
+
+### New files — backend
+
+| File | Purpose |
+|------|---------|
+| `apps/api/src/schemas/connectors.py` | `ConnectorMeta`, `TestConnectionResult`, `IngestionRun`. |
+| `apps/api/src/routers/connectors.py` | `GET /connectors`, `POST /connectors/{id}/test`, `POST /connectors/{id}/sync`, `GET /ingestion-runs` — deterministic; ingestion runs persisted via the v1.2 local store (namespace `ingestion`). |
+| `apps/api/tests/test_connectors.py` | 7 tests (list, test pass/placeholder/unknown-404, sync creates+persists run, sync accepts posted run, placeholder sync → failed run). |
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `apps/web/src/pages/DataSourcesPage.tsx` | Rebuilt around the registry + connector store: connector cards (status, capabilities, last sync, records), Test connection / Preview events / Run mock sync, normalized event preview, ingestion-run history, mock sources. |
+| `apps/web/src/api/client.ts` | Added `getConnectors`, `testConnector`, `syncConnector`, `getIngestionRuns`. |
+| `apps/web/src/utils/appVersion.ts` | `APP_VERSION` → **v1.3.0**. |
+| `apps/api/main.py` | Registered the connectors router. |
+
+### How it works
+
+- **Normalized event model** — one neutral `NormalizedSecurityEvent` every connector normalizes into, so alerts/query/evidence never depend on a SIEM-specific schema.
+- **Connector interface** — `SecurityDataConnector` (listSources/testConnection/fetchSampleEvents/fetchAlerts/runQuery/normalize/getLastSync); the registry exposes metadata + concrete implementations.
+- **Mock connector** — the only real implementation; deterministic, reads `mockSocData` + sample events; `testConnection` passes; `fetchSampleEvents`/`fetchAlerts` return normalized events; `runQuery` filters them.
+- **Placeholders** — Sentinel/Splunk/Elastic/Defender/CrowdStrike/Okta report `not_configured`, `testConnection` returns "not configured", Preview/Sync disabled; no network, no credentials.
+- **Data Sources page** — per-connector cards with Test / Preview / Run mock sync; a normalized event preview table (raw source → category + user/host/ip/process/severity); an ingestion-run history list.
+- **Ingestion runs** — mock sync builds a deterministic `IngestionRun` (records fetched/normalized, alerts created) and persists it via the backend (`/connectors/{id}/sync` → local store), hydrated by `/ingestion-runs`; placeholder sync yields a failed run.
+- **Persistence** — ingestion-run history + per-connector last-sync live in the v1.2 SQLite local store (namespace `ingestion`); raw event records stay as fixtures (no bulk data persisted).
+- **Provenance** — the normalized model + preview surface source connector / platform / source table; mapping utilities carry it toward alerts/query/evidence for a future ingestion pipeline.
+- **Existing workflows preserved** — `alertStore`, `mockSocData`, `mockResults`, evidence graph, QueryPlan/adapters, command overlay, AI panels all unchanged; the connector layer is additive.
+
+### Known limitations
+
+- The connector layer is a **foundation**: mapping utilities exist but existing stores are not yet *fed* from the connector (alerts/query/evidence still read their current sources). Wiring the pipeline through is a future phase.
+- No real SIEM/EDR APIs, no credentials, no secrets management — placeholders only.
+- Vite bundle ~531 KB (advisory only, not a failure) — code-splitting deferred.
+
+### Next recommended phase
+
+**v1.4 — Live-path connector wiring:** feed `alertStore`/query results/evidence from connector-normalized events behind a flag; add a real connector (starting with a read-only Sentinel query path) behind secrets management + auth; per-connector scheduling.
+
+**Test status:** 157/157 pytest, 136 modules, 531KB bundle (vite v6). Safe to commit as **v1.3.0-connector-ingestion-foundation**.
+
+---
+
 ## v1.2.0 — Local Persistence Layer and Demo Database Foundation
 
 **Date:** 2026-07-10  

@@ -30,9 +30,13 @@ SentinelIQ is a **mock-first prototype** for portfolio / demo use. It is **not**
 - Do **not** deploy it with real data or on an untrusted network. A production deployment must add authentication/RBAC and a real database (the documented `FutureDatabaseWorkspaceMemoryProvider` boundary).
 - "Reset demo data" (Settings) clears the local store and reseeds mock defaults.
 
-## SIEM connectors
+## Connectors & ingestion (v1.3.0)
 
-- No real SIEM connector is implemented. `RealSIEMProvider` raises `NotImplementedError` — real Sentinel / Splunk / Elastic execution is future work and must add its own credential handling and least-privilege access.
+- SentinelIQ defines a **connector / normalized ingestion foundation**, but only the **mock connector** is implemented. Real platforms (Sentinel, Splunk, Elastic, Defender, CrowdStrike, Okta) are **placeholders** that report `not_configured`, refuse to sync, and **never call a network or use credentials**.
+- **Do not upload real SOC logs** or point any connector at real telemetry. The ingestion path is mock-only (`mode: mock`); raw records are deterministic fixtures.
+- Future real connectors **must** add: **secrets management** for API keys/tokens (never in the repo or the local store), **auth/RBAC** on the ingestion + persistence APIs, **encryption in transit and at rest**, and **least-privilege, read-only** SIEM access.
+- Ingestion-run history is persisted in the local demo SQLite store (namespace `ingestion`) — metadata only (counts, timestamps, status), never bulk event data.
+- `RealSIEMProvider` still raises `NotImplementedError`; real query execution remains future work.
 
 ## Reporting a concern
 

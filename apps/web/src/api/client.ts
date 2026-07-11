@@ -117,3 +117,31 @@ export function streamAction(
 export async function shareSession(sessionId: string): Promise<{ share_token: string; share_url: string; expires_at: string }> {
   return post(`/session/${sessionId}/share`, {})
 }
+
+// ── Connectors / ingestion (v1.3.0) ────────────────────────────────────────
+// Deterministic mock endpoints. Callers wrap these in try/catch so the Data Sources page
+// stays fully usable (frontend registry is the source of truth) when the backend is down.
+
+export async function getConnectors(): Promise<{ connectors: unknown[] }> {
+  return get('/connectors')
+}
+
+export async function testConnector(id: string): Promise<unknown> {
+  return post(`/connectors/${id}/test`, {})
+}
+
+/** Persist an ingestion run for a connector. Sends the run the frontend built; backend stores it. */
+export async function syncConnector(id: string, run?: unknown): Promise<{ run: unknown }> {
+  return post(`/connectors/${id}/sync`, run ?? {})
+}
+
+export async function getIngestionRuns(): Promise<{ runs: unknown[] }> {
+  return get('/ingestion-runs')
+}
+
+export async function getSampleEvents(
+  id: string,
+  limit = 12,
+): Promise<{ connectorId: string; status: string; events: unknown[] }> {
+  return get(`/connectors/${id}/sample-events`, { limit: String(limit) })
+}

@@ -4,7 +4,7 @@
 
 > **Manual SOC workflow first. AI-assisted acceleration second. Investigation memory always.**
 
-`Status: Mock-first prototype` · `External AI: Off` · `Persistence: Local SQLite (demo)` · `Backend tests: 150 passing` · `Frontend build: passing locally`
+`Status: Mock-first prototype` · `External AI: Off` · `Persistence: Local SQLite (demo)` · `Backend tests: 157 passing` · `Frontend build: passing locally`
 
 ---
 
@@ -55,7 +55,7 @@ Specifically, right now SentinelIQ:
 - ✅ Uses **deterministic mock SOC data** (a realistic `jsmith@corp.com` account-compromise scenario + a 190-alert generated dataset)
 - 🚫 Does **not** use real customer or production security data
 - 🚫 Does **not** call Claude / OpenAI / any external AI API (mock provider only)
-- 🚫 Does **not** connect to Microsoft Sentinel, Splunk, or Elastic (adapters render query *syntax* only)
+- 🚫 Does **not** connect to Microsoft Sentinel, Splunk, or Elastic (adapters render query *syntax* only; connectors are declared **placeholders** that report `not_configured`)
 
 The current value is the **workflow architecture**: investigation memory, the evidence graph, vendor-agnostic query planning, and the mock AI-orchestration contracts (Context Used + Execution Trace + redaction). Provider swapping is designed in from day one — see [Architecture](#architecture).
 
@@ -74,7 +74,8 @@ The current value is the **workflow architecture**: investigation memory, the ev
 | **AI orchestration (mock)** | Context Used panel · Execution Trace · privacy/redaction policies · explicit Save-as-Note / Pin-as-Finding (never auto-save) |
 | **Reporting** | Executive / technical / handoff / regulatory report variants · context-bound generation ("Using: {case}") |
 | **Data** | Deterministic mock SOC data layer (fixtures + generated alerts) |
-| **Persistence (demo)** | Local SQLite via the backend — investigation memory, alert lifecycle/audit trail, and workspace checkpoints survive reloads · debounced autosave · hydrate on load · graceful browser-fallback · Reset demo data |
+| **Connectors / ingestion** | Vendor-neutral `NormalizedSecurityEvent` model · `SecurityDataConnector` interface · mock SOC connector (test / preview / mock sync) · Sentinel/Splunk/Elastic/Defender/CrowdStrike/Okta **placeholders** (`not_configured`) · persisted ingestion-run history · Data Sources page |
+| **Persistence (demo)** | Local SQLite via the backend — investigation memory, alert lifecycle/audit trail, workspace checkpoints, and ingestion runs survive reloads · debounced autosave · hydrate on load · graceful browser-fallback · Reset demo data |
 
 ---
 
@@ -154,6 +155,7 @@ Analyst intent (command bar / page action)
 | Frontend | React 18 + TypeScript + Vite + Tailwind + Zustand |
 | Backend | FastAPI (Python) · SSE streaming for AI actions · SQLite session store |
 | Mock SOC data | Deterministic fixtures + generated 190-alert dataset |
+| Connectors / ingestion | Neutral `NormalizedSecurityEvent` · `SecurityDataConnector` interface · `MockSocConnector` + real-platform placeholders · ingestion runs (persisted); backend `GET /connectors`, `POST /connectors/{id}/{test,sync}`, `GET /ingestion-runs` |
 | QueryPlan / adapters | Neutral `QueryPlan` → Sentinel / Splunk / Elastic renderers + validation |
 | Alert store | Alert data, filters, selection, lifecycle, audit trail (Zustand) |
 | Investigation store | Per-case turns, artifacts, notes, findings, entities, reports |

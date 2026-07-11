@@ -92,3 +92,4 @@ v1.2.0 adds a local SQLite demo persistence store (`SENTINELIQ_DB_PATH`). On hos
 - Backend state (sessions, alert lifecycle, investigation memory) is **SQLite-backed but ephemeral** on most hosts — a host restart without a persistent volume resets it.
 - No auth / RBAC — treat any deployment as **public and demo-only**.
 - Keep `MOCK_LLM=true`. Turning it off requires a real `ANTHROPIC_API_KEY` and still won't execute real SIEM queries (`RealSIEMProvider` is a Phase 2 stub).
+- **Connectors (v1.3.0) are mock/placeholder only.** The Data Sources page ships a working **mock connector** plus `not_configured` placeholders for Sentinel/Splunk/Elastic/Defender/CrowdStrike/Okta. No connector uses credentials or the network; ingestion runs are deterministic and metadata-only. Do **not** wire a hosted demo to real telemetry — real connectors require secrets management, auth/RBAC, and encryption (see [SECURITY.md](SECURITY.md)).
