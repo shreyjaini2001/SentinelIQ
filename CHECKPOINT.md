@@ -944,6 +944,46 @@ The only app-code touched is deployment config: a frontend API-base helper (`VIT
 
 ---
 
+## v1.3.1 — Data Sources Preview Events Fix and Connector UX Stabilization
+
+**Date:** 2026-07-11  
+**Status:** Complete — zero TS errors, 161/161 pytest passing. Fixes the Data Sources "Preview events" flow (the v1.3 acceptance blocker).
+
+### Root cause
+
+The v1.3.0 preview was a **synchronous, feedback-less** path: `connectorStore.preview(id)` set `previewEvents` from the local connector with **no loading, error, empty, or retry state**, and no backend source. The happy path was wired correctly (button enabled for mock, store setter + render correct), so this was not a hard crash — but any transient/empty result, a second click, or a stale cached bundle presented as "nothing happens," with no diagnostic feedback and no way to retry.
+
+### Fix
+
+Reworked preview into an explicit, deterministic **async flow with full states**, backed by a new backend route with a local fallback so it works online and offline.
+
+| File | Change |
+|------|--------|
+| `apps/api/src/schemas/connectors.py` | Added `NormalizedEvent` schema. |
+| `apps/api/src/routers/connectors.py` | Added `GET /connectors/{id}/sample-events?limit=` — deterministic normalized sample events (8, covering authentication / process / network / identity / cloud / alert) for the mock connector; placeholders return `not_configured` + empty; unknown → 404. |
+| `apps/api/tests/test_connectors.py` | +4 tests (mock returns normalized events across categories, limit, placeholder empty, unknown 404). **161/161 passing.** |
+| `apps/web/src/api/client.ts` | Added `getSampleEvents(id, limit)`. |
+| `apps/web/src/stores/connectorStore.ts` | `preview` is now `async` with `previewLoading` + `previewError`: dedupes overlapping loads, tries the backend then falls back to the local `MockSocConnector` (deterministic source of truth), ignores stale responses when the connector is switched mid-load, and sets an empty-state error instead of silently showing nothing. `clearPreview` resets the new fields. |
+| `apps/web/src/components/datasources/ConnectorCard.tsx` | Preview button shows "Loading…" and is disabled while that connector is previewing; placeholders stay disabled. |
+| `apps/web/src/pages/DataSourcesPage.tsx` | Renders a loading panel, an error panel with **Retry** + **Dismiss**, or the `NormalizedEventPreview` table; passes `previewBusy`. |
+| `apps/web/src/utils/appVersion.ts` | `APP_VERSION` → **v1.3.1**. |
+
+### Behavior after fix
+
+- **Preview is backend-primary with a local fallback.** Click "Preview events" on the Mock SOC Dataset → a brief loading state → a normalized event table (timestamp, source table/index, category, event name, user/host/ip/process, severity). Missing fields render as `—`, never crash.
+- **Loading / error / empty / retry** are all explicit; duplicate clicks are ignored while loading; switching connectors mid-load discards stale results.
+- **Placeholders** (Sentinel/Splunk/Elastic/Defender/CrowdStrike/Okta) keep Preview disabled; the backend route returns `not_configured` + empty — no network, no credentials.
+- **No regression** to Test connection, Run mock sync, ingestion-run list, or ingestion-run persistence.
+
+### Known limitations
+
+- Backend and local fallback sample sets are both deterministic but not byte-identical (backend returns a curated 8; the local connector can add alert-derived rows) — either is valid for the preview's purpose.
+- Vite bundle ~532 KB (advisory only, not a failure).
+
+**Test status:** 161/161 pytest, zero TS errors, 532KB bundle (vite v6). Safe to commit as **v1.3.1-data-sources-preview-fix**.
+
+---
+
 ## v1.3.0 — Connector and Normalized Ingestion Foundation
 
 **Date:** 2026-07-10  
