@@ -18,4 +18,6 @@ Place portfolio screenshots in this folder. The root [README](../../README.md#sc
 - Use a consistent window size and the dark theme for a clean set.
 - PNG preferred; keep files reasonably sized for GitHub.
 
-> ⚠️ **Add screenshots here before public portfolio sharing.** No image files are committed yet — the paths above are placeholders.
+The seven screenshots listed above are committed. Additional original demo
+captures and the separate portfolio cover are collected in the
+[demo gallery](../demo-gallery.md).
