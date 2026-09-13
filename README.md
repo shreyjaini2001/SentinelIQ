@@ -1,5 +1,7 @@
 # SentinelIQ
 
+[View the screenshot gallery and portfolio cover](docs/demo-gallery.md)
+
 **A memory-first, AI-assisted SOC investigation workspace that helps analysts turn alerts, logs, queries, evidence, notes, and reports into a connected, explainable investigation.**
 
 > **Manual SOC workflow first. AI-assisted acceleration second. Investigation memory always.**
